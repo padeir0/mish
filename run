@@ -1,0 +1,5 @@
+#!/bin/bash
+
+gcc -Wall -Wextra -Werror -std=c99 test.c -o test
+./test
+rm test

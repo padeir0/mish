@@ -1,16 +1,54 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdlib.h>
+
+/* BEGIN: CONFIG */
+
+/* This defines how some given memory is split between
+ * different regions.
+ * The size of a region is defined as:
+ *   region_size = (total_memory * CFG_REGION_SIZE) / CFG_GRANULARITY
+ */
+
+#define CFG_GRANULARITY               128
+#define CFG_ARG_ARENA_SIZE            16
+#define CFG_STR_ARENA_SIZE            64
+#define CFG_NODE_ARENA_SIZE           32
+#define CFG_HASHMAP_BUCKET_ARRAY_SIZE 16
+
+/* END: CONFIG*/
 
 struct argument;
 struct shell;
 
+enum error_code {
+  error_none,
+  error_contract_violation,
+  error_bad_rune,
+  error_internal_lexer,
+  error_internal_parser,
+  error_invalid_syntax,
+  error_unrecognized_rune,
+  error_parser_out_of_memory,
+  error_expected_command
+};
+
 typedef struct {
-  argument* argv;
+  int begin, end;
+} range;
+
+typedef struct {
+  range range;
+  enum error_code code;
+} error;
+
+typedef struct {
+  struct argument* argv;
   int argc;
 } arg_list;
 
-typedef void (*command)(struct shell* s, arg_list args);
+typedef error (*command)(arg_list args);
 
 typedef struct {
   char* buffer;
@@ -21,7 +59,7 @@ enum atom_kind {
   atk_string,
   atk_exact_num,
   atk_inexact_num,
-  atk_id
+  atk_comand
 };
 
 typedef struct {
@@ -51,37 +89,3 @@ typedef struct argument {
     atom atom;
   } contents;
 } argument;
-
-typedef struct _node {
-  atom key;
-  atom value;
-  struct _node* next;
-} list_node;
-
-typedef struct {
-  list_node* head, tail;
-} atom_list;
-
-typedef struct {
-  atom_list* buckets;
-  size_t num_buckets;
-} map;
-
-typedef struct shell {
-  map symbols;
-} shell;
-
-enum error_code {
-  error_none,
-  error_contract_violation,
-  error_bad_rune,
-  error_internal_lexer,
-  error_invalid_syntax,
-  error_unrecognized_rune,
-  error_parser_out_of_memory
-};
-
-typedef struct {
-  range range;
-  enum error_code code;
-} error;

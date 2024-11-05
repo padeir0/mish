@@ -9,7 +9,7 @@ Most of all, it must be small.
 ```ebnf
 Command = id {Pair} '\n'.
 Pair = Atom [':' Atom].
-Atom = id | num | str.
+Atom = ['$'] (id | num | str).
 
 num = hex | bin | dec.
 dec = dec-num ['.' dec-num].
@@ -34,18 +34,41 @@ id-char = letters |
      '~' | '+' | '-' | '_' | '*' | '/' | '?' | '=' |
      '&' | '$' | '%' | '<' | '>' | '!'.
 id-char-num = id-char | digit.
+```
 
+There are 3 representations of strings:
+ - Single quote strings
+ - Double quote strings
+ - Identifiers
 
+An atom is only evaluated as a variable if
+it is preceded by `$`.
 
+Some built-in functions shall be available:
+ - `def` that places a variable on the environment
+ - `echo` that echoes something back
+ - `clear` that cleans the environment
+
+Example:
+
+```
+> def ssid:Embeddona pwd:"314159"
+> wifi-connect $ssid $pwd
+connected.
+> echo $ssid
+"Embeddona"
+> clear
+> echo $ssid
+undefined
 ```
 
 ## Examples
 
 ```
-> wifi-connect ssid:Embeddona pwd:31415926
+> wifi-connect ssid:"Embeddona" pwd:"31415926"
 > show-tasks
 wifi  main  imu
-> set-name Sensor-1
+> set-name "sensor-1"
 ```
 
 ## Limitations
@@ -159,3 +182,36 @@ to the map internal memory. The map is managed by a free-list allocator
 and memory is only freed when items are removed from the map.
 
 This means no garbage collection is necessary.
+
+
+## Eval
+
+Here's what happens with a command, suppose we type:
+
+```
+wifi-connect Embeddona pwd:"31415926"
+```
+
+First it is tokenized by simply marking the starts and ends of
+each lexeme, no copies happen here.
+  
+```
+"wifi-connect", "Embeddona", "pwd", ":", "\"31415926\""
+```
+
+At the parsing stage, an argument list is built using an arena.
+Simple arguments like numbers are directly stored in this list,
+while strings that are dynamic in length
+are created by referencing the source.
+
+It is fine to reference the source at this stage, since we require
+that the string representing a command lives for as long as the command is being
+evaluated.
+
+Anything that needs to live longer than the command execution needs to be copied.
+This is the case for identifiers and things referenced by identifiers in the environment.
+
+This command is then parsed as an `arg_list*`, which will live in the argument arena
+as:
+
+![argument list](./arg_arena.svg "Argument list")
