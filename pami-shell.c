@@ -1,6 +1,38 @@
 #include "pami-shell.h"
 #include <limits.h>
 
+/* BEGIN: UTILITARIES */
+
+bool atom_equals(atom a, atom b) {
+  str a_s; str b_s;
+  if (a.kind != b.kind) {
+    return false;
+  }
+
+  switch (a.kind) {
+    case atk_string:
+      a_s = a.contents.string;
+      b_s = b.contents.string;
+
+      if (a_s.length != b_s.length) {
+        return false;
+      }
+      return strncmp(a_s.buffer,
+                     b_s.buffer,
+                     a_s.length);
+    case atk_exact_num:
+      return a.contents.exact_num == b.contents.exact_num;
+    case atk_inexact_num:
+      return a.contents.inexact_num == b.contents.inexact_num;
+    case atk_command:
+      return a.contents.cmd == b.contents.cmd;
+    default:
+      return false;
+  }
+}
+
+/* END: UTILITARIES */
+
 /* BEGIN: ARENA ALLOCATOR */
 enum arena_RES {
   arena_OK,
@@ -9,12 +41,6 @@ enum arena_RES {
 };
 
 char* arena_str_res(enum arena_RES res);
-
-typedef struct {
-  uint8_t* buffer;
-  size_t   buffsize;
-  size_t   allocated;
-} arena;
 
 /* returns a arena allocated at the beginning of the buffer */
 arena* new_arena(uint8_t* buffer, size_t size, enum arena_RES* res);
@@ -168,9 +194,9 @@ size_t utf8_decode(const char* buffer, rune* r) {
 
 /* BEGIN: HASHMAP */
 
-uint32_t murmur_hash(uint8_t* buff, size_t size) {
+uint32_t murmur_hash(char* buff, size_t size) {
   uint32_t out = 0xCAFEBABE;
-  int i;
+  size_t i;
   for (i = 0; i < size; i++) {
     out = out ^ (uint32_t)buff[i] * 0x5bd1e995;
     out = out ^ (out >> 15);
@@ -187,17 +213,17 @@ uint32_t map_hash_exact(uint64_t num) {
 }
 
 uint32_t map_hash_inexact(double num) {
-  return murmur_hash((uint8_t*)&num, sizeof(double));
+  return murmur_hash((char*)&num, sizeof(double));
 }
 
-uint32_t map_hash_md(command cmd) {
-  return (uint32_t)((uint64_t)command % UINT_MAX);
+uint32_t map_hash_cmd(command cmd) {
+  return (uint32_t)((uint64_t)cmd % UINT_MAX);
 }
 
 uint32_t map_hash(atom a) {
   switch (a.kind) {
   case atk_string:
-    return map_hash_str(a.contents.str);
+    return map_hash_str(a.contents.string);
   case atk_exact_num:
     return map_hash_exact(a.contents.exact_num);
   case atk_inexact_num:
@@ -209,38 +235,89 @@ uint32_t map_hash(atom a) {
   }
 }
 
-typedef struct _node {
-  atom key;
-  atom value;
-  struct _node* next;
-} list_node;
-
-typedef struct {
-  list_node* head, tail;
-} atom_list;
-
-typedef struct {
-  atom_list* buckets;
-  size_t num_buckets;
-
-  arena* str_arena;
-  arena* node_arena;
-} map;
-
-bool map_insert(map* m, atom key, atom value) {
+/* we need to copy the string to the internal buffer 
+ * so it can live beyond the lifetime of command execution
+ */
+bool copy_atom(map* m, atom* dest, atom* source) {
+  str source_s;
+  str dest_s;
+  dest->kind = source->kind;
+  switch (source->kind) {
+    case atk_string:
+      source_s = source->contents.string;
+      dest_s.buffer = arena_alloc(m->str_arena, source_s.length);
+      if (dest_s.buffer == NULL) {
+        return false;
+      }
+      dest_s.length = source_s.length;
+      memcpy(dest_s.buffer, source_s.buffer, source_s.length);
+      dest->contents.string = dest_s;
+      return true;
+    case atk_exact_num:
+      dest->contents.exact_num = source->contents.exact_num;
+      return true;
+    case atk_inexact_num:
+      dest->contents.inexact_num = source->contents.inexact_num;
+      return true;
+    case atk_command:
+      dest->contents.cmd = source->contents.cmd;
+      return true;
+    default:
+      return false;
+  }
 }
 
-atom* map_find(map* m, atom key) {
+bool map_insert(map* m, atom key, atom value) {
   int index = map_hash(key) % m->num_buckets;
-  list_node* list = m->buckets[index];
+  atom_list* list = &(m->buckets[index]);
+  list_node* prev = list->head;
+  list_node* n = list->head;
+  while (n != NULL) {
+    if (atom_equals(key, n->key)) {
+      /* modifying anything in the environment means lifetimes are not linear
+         ie: replacing a string would not clear the space occupied by
+         the previous one, we only use arena allocators.
+      */
+      return false; 
+    }
+    n = n->next;
+  }
+
+  if (prev == NULL) {
+    /* this list is empty */
+    prev = arena_alloc(m->node_arena, sizeof(list_node));
+    if (prev == NULL) {
+      return false;
+    }
+  }
+
+  if (copy_atom(m, &(prev->key), &key)     == false ||
+      copy_atom(m, &(prev->value), &value) == false) {
+    return false;
+  }
   
+  return true;
+}
+
+bool map_find(map* m, atom key, atom* out) {
+  int index = map_hash(key) % m->num_buckets;
+  atom_list list = m->buckets[index];
+  list_node* n = list.head;
+  while (n != NULL) {
+    if (atom_equals(key, n->key)) {
+      *out = n->value;
+      return true;
+    }
+    n = n->next;
+  }
+  return false;
 }
 
 void map_clear(map* m) {
-  int i;
-  list_node* item;
+  size_t i;
+  atom_list* item;
   for (i = 0; i < m->num_buckets; i++) {
-    item = m->buckets[i];
+    item = &(m->buckets[i]);
     item->head = NULL;
     item->tail = NULL;
   }
@@ -766,53 +843,11 @@ bool lex_next(lexer* l) {
 }
 /* END: LEXER */
 
+
 /* BEGIN: PARSER*/
 /* parser is technically recursive descent, but without
  * any recursion, since the grammar is not recursive
  */
-
-typedef struct {
-  map map;
-  arena* arg_arena;
-  error* err;
-} shell;
-
-/* TODO: make sure memory is aligned */
-shell new_shell(uint8_t* buffer, size_t size) {
-  shell s;
-  uint8_t* start;
-  size_t region_size;
-  enum arena_RES res;
-
-  start = buffer;
-  region_size = (size*CFG_ARG_ARENA_SIZE)/CFG_GRANULARITY;
-  s.arg_arena = new_arena(start, region_size, &res);
-  if (res != arena_OK) {
-    /* TODO: deal with error */
-  }
-
-  start += region_size;
-  region_size = (size*CFG_STR_ARENA_SIZE)/CFG_GRANULARITY;
-  s.map.str_arena = new_arena(start, region_size, &res);
-  if (res != arena_OK) {
-    /* TODO: deal with error */
-  }
-
-  start += region_size;
-  region_size = (size*CFG_NODE_ARENA_SIZE)/CFG_GRANULARITY;
-  s.map.node_arena = new_arena(start, region_size, &res);
-  if (res != arena_OK) {
-    /* TODO: deal with error */
-  }
-
-  start += region_size;
-  region_size = (size*CFG_HASHMAP_BUCKET_ARRAY_SIZE)/CFG_GRANULARITY;
-  s.map.bucket_list = (atom_list*)start;
-  s.map.num_buckets = region_size / sizeof(atom_list);
-
-  return s;
-}
-
 str create_string(lexer* l) {
   str s;
   s.length = lex_lexeme_len(l->lexeme) -2; /* minus delimiters */
@@ -857,7 +892,7 @@ bool eval_atom(shell ctx, atom* a) {
 */
 
 /* Atom = ['$'] (id | num | str). */
-bool pr_parse_atom(lexer* l, atom* a, shell ctx) {
+bool pr_parse_atom(lexer* l, atom* a, struct shell ctx) {
   bool is_var = false;
   bool ok;
   switch (l->lexeme.kind) {
@@ -898,7 +933,7 @@ bool pr_parse_atom(lexer* l, atom* a, shell ctx) {
 }
 
 /* Pair = Atom [':' Atom]. */
-bool pr_parse_args(lexer* l, shell ctx) {
+bool pr_parse_args(lexer* l, struct shell ctx) {
   atom at1;
   atom at2;
   pair p;
@@ -995,3 +1030,49 @@ arg_list* pr_parse(char* input, size_t input_size, shell ctx) {
   return list;
 }
 /* END: PARSER*/
+
+/* BEGIN: SHELL */
+/* TODO: make sure memory is aligned */
+error new_shell(uint8_t* buffer, size_t size, shell* s) {
+  uint8_t* start;
+  size_t region_size;
+  enum arena_RES res;
+  error err;
+
+  err.range.begin = 0;
+  err.range.end = 0;
+
+  start = buffer;
+  region_size = (size*CFG_ARG_ARENA_SIZE)/CFG_GRANULARITY;
+  s->arg_arena = new_arena(start, region_size, &res);
+  if (res != arena_OK) {
+    err.code = error_bad_arena;
+    return err;
+  }
+
+  start += region_size;
+  region_size = (size*CFG_STR_ARENA_SIZE)/CFG_GRANULARITY;
+  s->map.str_arena = new_arena(start, region_size, &res);
+  if (res != arena_OK) {
+    err.code = error_bad_arena;
+    return err;
+  }
+
+  start += region_size;
+  region_size = (size*CFG_NODE_ARENA_SIZE)/CFG_GRANULARITY;
+  s->map.node_arena = new_arena(start, region_size, &res);
+  if (res != arena_OK) {
+    err.code = error_bad_arena;
+    return err;
+  }
+
+  start += region_size;
+  region_size = (size*CFG_HASHMAP_BUCKET_ARRAY_SIZE)/CFG_GRANULARITY;
+  s->map.buckets = (atom_list*)start;
+  s->map.num_buckets = region_size / sizeof(atom_list);
+
+  err.code = error_none;
+  return err;
+}
+
+/* END: SHELL */

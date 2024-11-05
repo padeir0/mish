@@ -31,7 +31,8 @@ enum error_code {
   error_invalid_syntax,
   error_unrecognized_rune,
   error_parser_out_of_memory,
-  error_expected_command
+  error_expected_command,
+  error_bad_arena
 };
 
 typedef struct {
@@ -59,7 +60,7 @@ enum atom_kind {
   atk_string,
   atk_exact_num,
   atk_inexact_num,
-  atk_comand
+  atk_command
 };
 
 typedef struct {
@@ -71,6 +72,8 @@ typedef struct {
   } contents;
   enum atom_kind kind;
 } atom;
+
+bool atom_equals(atom a, atom b);
 
 enum arg_kind {
   ark_pair,
@@ -89,3 +92,39 @@ typedef struct argument {
     atom atom;
   } contents;
 } argument;
+
+/* some of these things should be private */
+
+typedef struct _node {
+  atom key;
+  atom value;
+  struct _node* next;
+} list_node;
+
+typedef struct {
+  uint8_t* buffer;
+  size_t   buffsize;
+  size_t   allocated;
+} arena;
+
+typedef struct {
+  list_node* head;
+  list_node* tail;
+} atom_list;
+
+typedef struct {
+  atom_list* buckets;
+  size_t num_buckets;
+
+  arena* str_arena;
+  arena* node_arena;
+} map;
+
+typedef struct shell {
+  map map;
+  arena* arg_arena;
+  error* err;
+} shell;
+
+error new_shell(uint8_t* buffer, size_t size, struct shell* s);
+error run(struct shell* s, char* cmd);
