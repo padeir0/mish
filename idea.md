@@ -52,11 +52,11 @@ Some built-in functions shall be available:
 Example:
 
 ```
-> def ssid:Embeddona pwd:"314159"
+> def ssid:meuwifi pwd:"12345678"
 > wifi-connect $ssid $pwd
 connected.
 > echo $ssid
-"Embeddona"
+"meuwifi"
 > clear
 > echo $ssid
 undefined
@@ -65,7 +65,7 @@ undefined
 ## Examples
 
 ```
-> wifi-connect ssid:"Embeddona" pwd:"31415926"
+> wifi-connect ssid:"meuwifi" pwd:"12345678"
 > show-tasks
 wifi  main  imu
 > set-name "sensor-1"
@@ -189,14 +189,14 @@ This means no garbage collection is necessary.
 Here's what happens with a command, suppose we type:
 
 ```
-wifi-connect Embeddona pwd:"31415926"
+wifi-connect meuwifi pwd:"12345678"
 ```
 
 First it is tokenized by simply marking the starts and ends of
 each lexeme, no copies happen here.
   
 ```
-"wifi-connect", "Embeddona", "pwd", ":", "\"31415926\""
+"wifi-connect", "meuwifi", "pwd", ":", "\"12345678\""
 ```
 
 At the parsing stage, an argument list is built using an arena.
