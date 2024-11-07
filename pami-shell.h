@@ -18,21 +18,20 @@
 #define CFG_HASHMAP_BUCKET_ARRAY_SIZE 16
 
 /* END: CONFIG*/
-
-struct argument;
-struct shell;
-
 enum error_code {
   error_none,
   error_contract_violation,
   error_bad_rune,
+  error_internal,
   error_internal_lexer,
-  error_internal_parser,
+  error_internal_parser, /* 5 */
   error_invalid_syntax,
   error_unrecognized_rune,
   error_parser_out_of_memory,
   error_expected_command,
-  error_bad_arena
+  error_arena_null_buffer, /* 10 */
+  error_arena_too_small,
+  error_variable_not_found
 };
 
 typedef struct {
@@ -44,12 +43,6 @@ typedef struct {
   enum error_code code;
 } error;
 
-typedef struct {
-  struct argument* argv;
-  int argc;
-} arg_list;
-
-typedef error (*command)(arg_list args);
 
 typedef struct {
   char* buffer;
@@ -62,6 +55,10 @@ enum atom_kind {
   atk_inexact_num,
   atk_command
 };
+
+struct arg_list;
+struct shell;
+typedef error (*command)(struct shell* s, struct arg_list* args);
 
 typedef struct {
   union {
@@ -93,6 +90,16 @@ typedef struct argument {
   } contents;
 } argument;
 
+/* we use a linked list since we build
+ * argument lists dynamically and we can't
+ * assume our allocator pads our objects
+ * like the C standard requires.
+ */
+typedef struct arg_list {
+  struct argument arg;
+  struct arg_list* next;
+} arg_list;
+
 /* some of these things should be private */
 
 typedef struct _node {
@@ -123,7 +130,7 @@ typedef struct {
 typedef struct shell {
   map map;
   arena* arg_arena;
-  error* err;
+  error err;
 } shell;
 
 error new_shell(uint8_t* buffer, size_t size, struct shell* s);

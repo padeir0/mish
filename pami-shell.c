@@ -1,5 +1,6 @@
 #include "pami-shell.h"
 #include <limits.h>
+#include <strings.h>
 
 /* BEGIN: UTILITARIES */
 
@@ -19,7 +20,7 @@ bool atom_equals(atom a, atom b) {
       }
       return strncmp(a_s.buffer,
                      b_s.buffer,
-                     a_s.length);
+                     a_s.length) == 0;
     case atk_exact_num:
       return a.contents.exact_num == b.contents.exact_num;
     case atk_inexact_num:
@@ -31,6 +32,63 @@ bool atom_equals(atom a, atom b) {
   }
 }
 
+void print_atom(atom a) {
+  switch (a.kind) {
+    case atk_string:
+      printf("(\"%.*s\", %ld)",
+             (int)a.contents.string.length,
+             a.contents.string.buffer,
+             a.contents.string.length);
+      break;
+    case atk_exact_num:
+      printf("%ld", a.contents.exact_num);
+      break;
+    case atk_inexact_num:
+      printf("%f", a.contents.inexact_num);
+      break;
+    case atk_command:
+      printf("%ld", (uint64_t)a.contents.cmd);
+      break;
+    default:
+      printf("??");
+      break;
+  }
+}
+
+void print_arg(argument a) {
+  pair p;
+  switch (a.kind) {
+  case ark_pair:
+    p = a.contents.pair;
+    printf("(");
+    print_atom(p.key);
+    printf(", ");
+    print_atom(p.value);
+    printf(")");
+    break;
+  case ark_atom:
+    print_atom(a.contents.atom);
+    break;
+  }
+}
+
+void print_arg_list(arg_list* list) {
+  arg_list* curr;
+  if (list == NULL) {
+    printf("NULL");
+    return;
+  }
+
+  curr = list;
+  while (curr != NULL) {
+    print_arg(curr->arg);
+
+    if (curr->next != NULL) {
+      printf(", ");
+    }
+    curr = curr->next;
+  }
+}
 /* END: UTILITARIES */
 
 /* BEGIN: ARENA ALLOCATOR */
@@ -62,6 +120,18 @@ bool arena_empty(arena* a);
 
 /* returns the head of the arena */
 void* arena_head(arena* a);
+
+enum error_code arena_map_res(enum arena_RES res) {
+  switch(res){
+    case arena_OK:
+      return error_none;
+    case arena_NULL_BUFF:
+      return error_arena_null_buffer;
+    case arena_TOO_SMALL:
+      return error_arena_too_small;
+  }
+  return error_internal;
+}
 
 char* arena_str_res(enum arena_RES res) {
   switch(res){
@@ -99,6 +169,7 @@ arena* new_arena(uint8_t* buffer, size_t size, enum arena_RES* res) {
   out->buffer = buffer + sizeof(arena);
   out->buffsize = size - sizeof(arena);
   out->allocated = 0;
+  *res = arena_OK;
 
   return out;
 }
@@ -107,6 +178,7 @@ void* arena_head(arena* a) {
   return (void*)(a->buffer + a->allocated);
 }
 
+/* TODO: properly align memory */
 void* arena_alloc(arena* a, size_t size) {
   void* out = arena_head(a);
   if (a->allocated+size >= a->buffsize) {
@@ -118,6 +190,9 @@ void* arena_alloc(arena* a, size_t size) {
 
 void arena_free_all(arena* a) {
   a->allocated = 0;
+  /* if you need to uncomment this line,
+   * you're doing something wrong. */
+  /* bzero(a->buffer, a->buffsize); */
 }
 
 size_t arena_available(arena* a) {
@@ -193,7 +268,6 @@ size_t utf8_decode(const char* buffer, rune* r) {
 /* END: UTF-8 DECODER */
 
 /* BEGIN: HASHMAP */
-
 uint32_t murmur_hash(char* buff, size_t size) {
   uint32_t out = 0xCAFEBABE;
   size_t i;
@@ -241,6 +315,7 @@ uint32_t map_hash(atom a) {
 bool copy_atom(map* m, atom* dest, atom* source) {
   str source_s;
   str dest_s;
+  
   dest->kind = source->kind;
   switch (source->kind) {
     case atk_string:
@@ -266,36 +341,39 @@ bool copy_atom(map* m, atom* dest, atom* source) {
       return false;
   }
 }
-
 bool map_insert(map* m, atom key, atom value) {
   int index = map_hash(key) % m->num_buckets;
   atom_list* list = &(m->buckets[index]);
-  list_node* prev = list->head;
   list_node* n = list->head;
   while (n != NULL) {
     if (atom_equals(key, n->key)) {
       /* modifying anything in the environment means lifetimes are not linear
          ie: replacing a string would not clear the space occupied by
-         the previous one, we only use arena allocators.
+         the previous one, this is impossible since we only use arena allocators.
       */
       return false; 
     }
     n = n->next;
   }
 
-  if (prev == NULL) {
-    /* this list is empty */
-    prev = arena_alloc(m->node_arena, sizeof(list_node));
-    if (prev == NULL) {
-      return false;
-    }
-  }
-
-  if (copy_atom(m, &(prev->key), &key)     == false ||
-      copy_atom(m, &(prev->value), &value) == false) {
+  n = arena_alloc(m->node_arena, sizeof(list_node));
+  if (n == NULL) {
     return false;
   }
-  
+  n->next = NULL;
+  if (copy_atom(m, &(n->key), &key)     == false ||
+      copy_atom(m, &(n->value), &value) == false) {
+    return false;
+  }
+
+  if (list->head == NULL) {
+    list->head = n;
+    list->tail = n;
+    return true;
+  }
+
+  list->tail->next = n;
+  list->tail = n;
   return true;
 }
 
@@ -323,6 +401,19 @@ void map_clear(map* m) {
   }
   arena_free_all(m->str_arena);
   arena_free_all(m->node_arena);
+}
+
+bool map_is_empty(map* m) {
+  size_t i;
+  atom_list item;
+  for (i = 0; i < m->num_buckets; i++) {
+    item = m->buckets[i];
+    if (item.head != NULL || item.tail != NULL) {
+      return false;
+    }
+  }
+  return arena_empty(m->str_arena) &&
+         arena_empty(m->node_arena);
 }
 
 /* END: HASHMAP*/
@@ -385,6 +476,7 @@ lexer lex_new_lexer(const char* input, size_t size) {
   l.lexeme.end = 0;
   l.lexeme.vkind = vk_none;
   l.lexeme.kind = lk_bad;
+  l.err.code = error_none;
   return l;
 }
 
@@ -844,9 +936,13 @@ bool lex_next(lexer* l) {
 /* END: LEXER */
 
 
-/* BEGIN: PARSER*/
+/* BEGIN: PARSER */
 /* parser is technically recursive descent, but without
  * any recursion, since the grammar is not recursive
+ *
+ * besides that, the parser also retrieves information from
+ * the environment, so that it's not only parsing, but
+ * also name resolution
  */
 str create_string(lexer* l) {
   str s;
@@ -855,7 +951,15 @@ str create_string(lexer* l) {
   return s;
 }
 
-bool create_atom(lexer* l, atom* a) {
+str create_string_from_id(lexer* l) {
+  str s;
+  s.length = lex_lexeme_len(l->lexeme);
+  s.buffer = lex_lexeme_str(l->input, l->lexeme);
+  return s;
+}
+
+bool create_atom(lexer* l, shell* ctx, atom* a) {
+  bool ok;
   switch (l->lexeme.kind) {
     case lk_str:
       a->kind = atk_string;
@@ -863,7 +967,7 @@ bool create_atom(lexer* l, atom* a) {
       break;
     case lk_id:
       a->kind = atk_string;
-      a->contents.string = create_string(l);
+      a->contents.string = create_string_from_id(l);
       break;
     case lk_num:
       switch (l->lexeme.vkind) {
@@ -882,17 +986,21 @@ bool create_atom(lexer* l, atom* a) {
     default:
       return false;
   }
+  ok = lex_next(l);
+  if (!ok) {
+    ctx->err = l->err;
+    return false;
+  }
   return true;
 }
 
-/*
-bool eval_atom(shell ctx, atom* a) {
-  return true;
+bool eval_variable(shell* ctx, atom* a) {
+  return map_find(&ctx->map, *a, a);
 }
-*/
 
+/* TODO: verify if errors are good */
 /* Atom = ['$'] (id | num | str). */
-bool pr_parse_atom(lexer* l, atom* a, struct shell ctx) {
+bool pr_parse_atom(lexer* l, atom* a, shell* ctx) {
   bool is_var = false;
   bool ok;
   switch (l->lexeme.kind) {
@@ -909,81 +1017,79 @@ bool pr_parse_atom(lexer* l, atom* a, struct shell ctx) {
 
     ok = lex_next(l);
     if (!ok) {
-      *(ctx.err) = l->err;
+      ctx->err = l->err;
       return false;
     }
   }
 
-  if (create_atom(l, a) == false) {
-    *(ctx.err) = lex_err(l, error_internal_parser);
+  if (create_atom(l, ctx, a) == false) {
+    ctx->err = lex_err(l, error_internal_parser);
     return false;
   }
 
   if (is_var) {
-    return true;
-    /*
-      ok = eval_atom(ctx, a);
-      if (!ok) {
-        return false;
-      }
-    */
+    ok = eval_variable(ctx, a);
+    if (!ok) {
+      ctx->err.code = error_variable_not_found;
+      return false;
+    }
   }
 
   return true;
 }
 
 /* Pair = Atom [':' Atom]. */
-bool pr_parse_args(lexer* l, struct shell ctx) {
+bool pr_parse_arg(lexer* l, shell* ctx, argument* arg) {
   atom at1;
   atom at2;
   pair p;
-  argument* a;
   bool ok;
 
   if (pr_parse_atom(l, &at1, ctx) == false) {
     return false;
   }
 
-  a = arena_alloc(ctx.arg_arena, sizeof(argument));
-  if (a == NULL) {
-    *(ctx.err) = lex_err(l, error_parser_out_of_memory);
-    return false;
-  }
-
   if (l->lexeme.kind == lk_colon) {
     ok = lex_next(l);
     if (!ok) {
-      *(ctx.err) = l->err;
+      ctx->err = l->err;
       return false;
     }
 
     if (pr_parse_atom(l, &at2, ctx) == false) {
       return false;
     }
+
     p.key = at1;
     p.value = at2;
-    a->kind = ark_pair;
-    a->contents.pair = p;
+    arg->kind = ark_pair;
+    arg->contents.pair = p;
     return true;
   }
-  a->kind = ark_atom;
-  a->contents.atom = at1;
+  arg->kind = ark_atom;
+  arg->contents.atom = at1;
   return true;
 }
 
-bool pr_parse_cmd(lexer* l, shell ctx) {
+bool pr_parse_cmd(lexer* l, shell* ctx, argument* arg) {
   atom a;
-  argument* arg = (argument*) arena_alloc(ctx.arg_arena, sizeof(argument));
   bool ok;
   arg->kind = ark_atom;
 
-  ok = create_atom(l, &a);
-  if (!ok) {
+  if (create_atom(l, ctx, &a) == false) {
+    ctx->err = lex_err(l, error_internal_parser);
     return false;
   }
+
+  ok = eval_variable(ctx, &a);
+  if (!ok) {
+    ctx->err.code = error_variable_not_found;
+    return false;
+  }
+  
   ok = lex_next(l);
   if (!ok) {
-    *(ctx.err) = l->err;
+    ctx->err = l->err;
     return false;
   }
   arg->contents.atom = a;
@@ -991,53 +1097,80 @@ bool pr_parse_cmd(lexer* l, shell ctx) {
 }
 
 /* Command = id {Pair} '\n'. */
-arg_list* pr_parse(char* input, size_t input_size, shell ctx) {
+arg_list* pr_parse(char* input, size_t input_size, shell* ctx) {
   lexer l = lex_new_lexer(input, input_size);
+  arg_list* root;
   arg_list* list;
+  argument arg;
   bool ok;
+  ctx->err.code = error_none;
 
   ok = lex_next(&l);
   if (!ok) {
-    *(ctx.err) = l.err;
+    ctx->err = l.err;
     return NULL;
   }
 
   if (l.lexeme.kind != lk_id) {
-    *(ctx.err) = lex_err(&l, error_expected_command);
+    ctx->err = lex_err(&l, error_expected_command);
     return NULL;
   }
 
-  list = (arg_list*) arena_alloc(ctx.arg_arena, sizeof(arg_list));
+  list = (arg_list*) arena_alloc(ctx->arg_arena, sizeof(arg_list));
   if (list == NULL) {
-    *(ctx.err) = lex_err(&l, error_parser_out_of_memory);
+    ctx->err = lex_err(&l, error_parser_out_of_memory);
+    return NULL;
+  }
+  root = list;
+
+  ok = pr_parse_cmd(&l, ctx, &arg);
+  if (!ok && ctx->err.code != error_none) {
     return NULL;
   }
 
-  list->argc = 1; /* at least the command */
-  list->argv = (argument*) arena_head(ctx.arg_arena);
-
-  pr_parse_cmd(&l, ctx);
-  if (ctx.err->code != error_none) {
-    return NULL;
-  }
+  list->arg = arg;
   
-  while (pr_parse_args(&l, ctx)) {
-    list->argc++; 
+  while (pr_parse_arg(&l, ctx, &arg)) {
+    list->next = (arg_list*) arena_alloc(ctx->arg_arena, sizeof(arg_list));
+    if (list->next == NULL) {
+      ctx->err = lex_err(&l, error_parser_out_of_memory);
+      return NULL;
+    }
+
+    list = list->next;
+    list->arg = arg;
   }
-  if (ctx.err->code != error_none) {
+
+  if (ctx->err.code != error_none) {
     return NULL;
   }
-  return list;
+  list->next = NULL;
+  return root;
 }
-/* END: PARSER*/
+/* END: PARSER */
 
 /* BEGIN: SHELL */
+error builtin_def(shell* s, arg_list* args) {
+  if (args->next == NULL) {
+    return err_contract_violation;
+  }
+  map_insert(&s->map);
+}
+
+error builtin_echo(shell* s, arg_list* args) {
+}
+
+error builtin_clear(shell* s, arg_list* args) {
+}
+
 /* TODO: make sure memory is aligned */
 error new_shell(uint8_t* buffer, size_t size, shell* s) {
   uint8_t* start;
   size_t region_size;
   enum arena_RES res;
   error err;
+  err.code = error_none;
+  s->err.code = error_none;
 
   err.range.begin = 0;
   err.range.end = 0;
@@ -1046,7 +1179,7 @@ error new_shell(uint8_t* buffer, size_t size, shell* s) {
   region_size = (size*CFG_ARG_ARENA_SIZE)/CFG_GRANULARITY;
   s->arg_arena = new_arena(start, region_size, &res);
   if (res != arena_OK) {
-    err.code = error_bad_arena;
+    err.code = arena_map_res(res);
     return err;
   }
 
@@ -1054,7 +1187,7 @@ error new_shell(uint8_t* buffer, size_t size, shell* s) {
   region_size = (size*CFG_STR_ARENA_SIZE)/CFG_GRANULARITY;
   s->map.str_arena = new_arena(start, region_size, &res);
   if (res != arena_OK) {
-    err.code = error_bad_arena;
+    err.code = arena_map_res(res);
     return err;
   }
 
@@ -1062,7 +1195,7 @@ error new_shell(uint8_t* buffer, size_t size, shell* s) {
   region_size = (size*CFG_NODE_ARENA_SIZE)/CFG_GRANULARITY;
   s->map.node_arena = new_arena(start, region_size, &res);
   if (res != arena_OK) {
-    err.code = error_bad_arena;
+    err.code = arena_map_res(res);
     return err;
   }
 
@@ -1070,8 +1203,6 @@ error new_shell(uint8_t* buffer, size_t size, shell* s) {
   region_size = (size*CFG_HASHMAP_BUCKET_ARRAY_SIZE)/CFG_GRANULARITY;
   s->map.buckets = (atom_list*)start;
   s->map.num_buckets = region_size / sizeof(atom_list);
-
-  err.code = error_none;
   return err;
 }
 
