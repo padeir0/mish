@@ -3,6 +3,36 @@
 #include <strings.h>
 
 /* BEGIN: UTILITARIES */
+atom atom_create_num_exact(uint64_t value) {
+  atom a;
+  a.kind = atk_exact_num;
+  a.contents.exact_num = value;
+  return a;
+}
+
+atom atom_create_num_inexact(double value) {
+  atom a;
+  a.kind = atk_inexact_num;
+  a.contents.exact_num = value;
+  return a;
+}
+
+atom atom_create_str(char* s) {
+  atom a;
+  str string;
+  string.buffer = s;
+  string.length = strlen(s);
+  a.kind = atk_string;
+  a.contents.string = string;
+  return a;
+}
+
+atom atom_create_cmd(command cmd) {
+  atom a;
+  a.kind = atk_command;
+  a.contents.cmd = cmd;
+  return a;
+}
 
 bool atom_equals(atom a, atom b) {
   str a_s; str b_s;
@@ -32,76 +62,81 @@ bool atom_equals(atom a, atom b) {
   }
 }
 
-void print_atom(atom a) {
+size_t snprint_atom(char* buffer, size_t size, atom a) {
+  size_t offset = 0;
   switch (a.kind) {
     case atk_string:
-      printf("(\"%.*s\", %ld)",
-             (int)a.contents.string.length,
-             a.contents.string.buffer,
-             a.contents.string.length);
+      offset = snprintf(buffer, size, "(\"%.*s\", %ld)",
+                        (int)a.contents.string.length,
+                        a.contents.string.buffer,
+                        a.contents.string.length);
       break;
     case atk_exact_num:
-      printf("%ld", a.contents.exact_num);
+      offset = snprintf(buffer, size, "%ld", a.contents.exact_num);
       break;
     case atk_inexact_num:
-      printf("%f", a.contents.inexact_num);
+      offset = snprintf(buffer, size, "%f", a.contents.inexact_num);
       break;
     case atk_command:
-      printf("%ld", (uint64_t)a.contents.cmd);
+      offset = snprintf(buffer, size, "%ld", (uint64_t)a.contents.cmd);
       break;
     default:
-      printf("??");
+      offset = snprintf(buffer, size, "??");
       break;
   }
+  return offset;
 }
 
-void print_arg(argument a) {
+size_t snprint_arg(char* buffer, size_t size, argument a) {
+  size_t offset = 0;
   pair p;
   switch (a.kind) {
   case ark_pair:
     p = a.contents.pair;
-    printf("(");
-    print_atom(p.key);
-    printf(", ");
-    print_atom(p.value);
-    printf(")");
+    offset += snprintf(buffer+offset, size-offset, "(");
+    offset += snprint_atom(buffer+offset, size-offset, p.key);
+    offset += snprintf(buffer+offset, size-offset, ", ");
+    offset += snprint_atom(buffer+offset, size-offset, p.value);
+    offset += snprintf(buffer+offset, size-offset, ")");
     break;
   case ark_atom:
-    print_atom(a.contents.atom);
+    offset += snprint_atom(buffer, size, a.contents.atom);
     break;
   }
+  return offset;
 }
 
-void print_arg_list(arg_list* list) {
+size_t snprint_arg_list(char* buffer, size_t size, arg_list* list) {
+  size_t offset = 0;
   arg_list* curr;
   if (list == NULL) {
-    printf("NULL");
-    return;
+    return snprintf(buffer, size, "NULL");
   }
 
   curr = list;
   while (curr != NULL) {
-    print_arg(curr->arg);
+    offset += snprint_arg(buffer+offset, size-offset, curr->arg);
 
     if (curr->next != NULL) {
-      printf(", ");
+      offset += snprintf(buffer+offset, size-offset, ", ");
     }
     curr = curr->next;
   }
+  return offset;
 }
 /* END: UTILITARIES */
 
 /* BEGIN: ARENA ALLOCATOR */
-enum arena_RES {
+typedef enum {
   arena_OK,
   arena_NULL_BUFF,
   arena_TOO_SMALL
-};
+} arena_RES;
 
-char* arena_str_res(enum arena_RES res);
+char* arena_str_res(arena_RES res);
 
 /* returns a arena allocated at the beginning of the buffer */
-arena* new_arena(uint8_t* buffer, size_t size, enum arena_RES* res);
+arena* new_arena(uint8_t* buffer, size_t size, arena_RES* res);
 
 /* returns NULL if it fails to allocate */
 void* arena_alloc(arena* a, size_t size);
@@ -121,7 +156,7 @@ bool arena_empty(arena* a);
 /* returns the head of the arena */
 void* arena_head(arena* a);
 
-enum error_code arena_map_res(enum arena_RES res) {
+error_code arena_map_res(arena_RES res) {
   switch(res){
     case arena_OK:
       return error_none;
@@ -133,7 +168,7 @@ enum error_code arena_map_res(enum arena_RES res) {
   return error_internal;
 }
 
-char* arena_str_res(enum arena_RES res) {
+char* arena_str_res(arena_RES res) {
   switch(res){
     case arena_OK:
       return "OK";
@@ -153,7 +188,7 @@ size_t distance(uint8_t* a, uint8_t* b) {
   }
 }
 
-arena* new_arena(uint8_t* buffer, size_t size, enum arena_RES* res) {
+arena* new_arena(uint8_t* buffer, size_t size, arena_RES* res) {
   arena* out;
   if (buffer == NULL) {
     *res = arena_NULL_BUFF;
@@ -419,7 +454,7 @@ bool map_is_empty(map* m) {
 /* END: HASHMAP*/
 
 /* BEGIN: LEXER */
-enum lex_kind {
+typedef enum {
   lk_bad,
   lk_num,
   lk_str,
@@ -428,13 +463,13 @@ enum lex_kind {
   lk_dollar,
   lk_newline,
   lk_eof
-};
+} lex_kind;
 
-enum val_kind {
+typedef enum {
   vk_none,
   vk_exact_num,
   vk_inexact_num
-};
+} val_kind;
 
 typedef union {
   uint64_t exact_num;
@@ -442,8 +477,8 @@ typedef union {
 } lex_value;
 
 typedef struct {
-  enum lex_kind kind;
-  enum val_kind vkind;
+  lex_kind kind;
+  val_kind vkind;
 
   size_t begin;
   size_t end;
@@ -480,6 +515,15 @@ lexer lex_new_lexer(const char* input, size_t size) {
   return l;
 }
 
+void lex_print_lexeme(lexer* l) {
+  printf("{begin: %ld, end: %ld, kind: %d, text: \"%.*s\"}\n",
+         l->lexeme.begin,
+         l->lexeme.end,
+         l->lexeme.kind,
+         lex_lexeme_len(l->lexeme),
+         lex_lexeme_str(l->input, l->lexeme));
+}
+
 error lex_base_err(lexer* l) {
   error err;
   err.code = error_none;
@@ -488,7 +532,7 @@ error lex_base_err(lexer* l) {
   return err;
 }
 
-error lex_err(lexer* l, enum error_code code) {
+error lex_err(lexer* l, error_code code) {
   error err = lex_base_err(l);
   err.code = code;
   return err;
@@ -650,6 +694,7 @@ bool lex_read_strlit(lexer* l, char delim) {
 
     if (r == delim) {
       lex_next_rune(l);
+      l->lexeme.kind = lk_str;
       return true;
     }
 
@@ -960,6 +1005,7 @@ str create_string_from_id(lexer* l) {
 
 bool create_atom(lexer* l, shell* ctx, atom* a) {
   bool ok;
+
   switch (l->lexeme.kind) {
     case lk_str:
       a->kind = atk_string;
@@ -980,15 +1026,18 @@ bool create_atom(lexer* l, shell* ctx, atom* a) {
         a->contents.inexact_num = l->lexeme.value.inexact_num;
         break;
       default:
+        printf("unfanthomable value kind\n");
         return false;
       }
       break;
     default:
+      printf("unfanthomable kind\n");
       return false;
   }
   ok = lex_next(l);
   if (!ok) {
     ctx->err = l->err;
+    printf("lex_next error\n");
     return false;
   }
   return true;
@@ -1003,6 +1052,7 @@ bool eval_variable(shell* ctx, atom* a) {
 bool pr_parse_atom(lexer* l, atom* a, shell* ctx) {
   bool is_var = false;
   bool ok;
+
   switch (l->lexeme.kind) {
     case lk_newline:
       return false;
@@ -1023,6 +1073,7 @@ bool pr_parse_atom(lexer* l, atom* a, shell* ctx) {
   }
 
   if (create_atom(l, ctx, a) == false) {
+    printf("boop\n");
     ctx->err = lex_err(l, error_internal_parser);
     return false;
   }
@@ -1077,6 +1128,7 @@ bool pr_parse_cmd(lexer* l, shell* ctx, argument* arg) {
   arg->kind = ark_atom;
 
   if (create_atom(l, ctx, &a) == false) {
+    printf("beep\n");
     ctx->err = lex_err(l, error_internal_parser);
     return false;
   }
@@ -1087,11 +1139,6 @@ bool pr_parse_cmd(lexer* l, shell* ctx, argument* arg) {
     return false;
   }
   
-  ok = lex_next(l);
-  if (!ok) {
-    ctx->err = l->err;
-    return false;
-  }
   arg->contents.atom = a;
   return true;
 }
@@ -1150,24 +1197,92 @@ arg_list* pr_parse(char* input, size_t input_size, shell* ctx) {
 /* END: PARSER */
 
 /* BEGIN: SHELL */
-error builtin_def(shell* s, arg_list* args) {
-  if (args->next == NULL) {
-    return err_contract_violation;
+size_t shell_write_atom(shell* s, atom a) {
+  size_t offset = snprint_atom(s->out_buffer + s->written, s->buff_size - s->written, a);
+  s->written += offset;
+  return offset;
+}
+
+size_t shell_write_arg(shell* s, argument a) {
+  size_t offset = snprint_arg(s->out_buffer + s->written, s->buff_size - s->written, a);
+  s->written += offset;
+  return offset;
+}
+
+size_t shell_write_strlit(shell* s, char* string) {
+  size_t offset = snprintf(s->out_buffer + s->written, s->buff_size - s->written, "%s", string);
+  s->written += offset;
+  return offset;
+}
+
+error_code builtin_def(shell* s, arg_list* args) {
+  arg_list* curr;
+  pair p;
+  bool ok;
+
+  if (args == NULL) {
+    return error_internal;
   }
-  map_insert(&s->map);
+
+  /* first we check if arguments are well formed */
+  curr = args->next;
+  while (curr != NULL) {
+    if (curr->arg.kind != ark_pair) {
+      return error_contract_violation;
+    }
+    curr = curr->next;
+  }
+
+  curr = args->next;
+  while (curr != NULL) {
+    p = curr->arg.contents.pair;
+
+    ok = map_insert(&s->map, p.key, p.value);
+    if (!ok) {
+      return error_insert_failed;
+    }
+    
+    curr = curr->next;
+  }
+  return error_none;
 }
 
-error builtin_echo(shell* s, arg_list* args) {
+error_code builtin_echo(shell* s, arg_list* args) {
+  arg_list* curr;
+
+  if (args == NULL) {
+    return error_internal;
+  }
+
+  curr = args->next;
+  while (curr != NULL) {
+    shell_write_arg(s, curr->arg);
+    if (curr->next != NULL) {
+      shell_write_strlit(s, ", ");
+    }
+    curr = curr->next;
+  }
+  shell_write_strlit(s, "\n");
+  return error_none;
 }
 
-error builtin_clear(shell* s, arg_list* args) {
+/* resets the environment to the default state */
+error_code builtin_clear(shell* s, arg_list* args) {
+  if (args == NULL) {
+    /* avoid warning */
+  }
+  map_clear(&s->map);
+  map_insert(&s->map, atom_create_str("clear"), atom_create_cmd(builtin_clear));
+  map_insert(&s->map, atom_create_str("echo"), atom_create_cmd(builtin_echo));
+  map_insert(&s->map, atom_create_str("def"), atom_create_cmd(builtin_def));
+  return error_none;
 }
 
 /* TODO: make sure memory is aligned */
 error new_shell(uint8_t* buffer, size_t size, shell* s) {
   uint8_t* start;
   size_t region_size;
-  enum arena_RES res;
+  arena_RES res;
   error err;
   err.code = error_none;
   s->err.code = error_none;
@@ -1203,7 +1318,19 @@ error new_shell(uint8_t* buffer, size_t size, shell* s) {
   region_size = (size*CFG_HASHMAP_BUCKET_ARRAY_SIZE)/CFG_GRANULARITY;
   s->map.buckets = (atom_list*)start;
   s->map.num_buckets = region_size / sizeof(atom_list);
+
+  builtin_clear(s, NULL);
+
   return err;
+}
+
+/* TODO: REFACTOR: make sure the order of arguments are consisten across procedures */
+error_code eval(shell* s, char* cmd, size_t cmd_size) {
+  arg_list* list = pr_parse(cmd, cmd_size, s);
+  if (list == NULL) {
+    return s->err.code;
+  }
+  return error_none;
 }
 
 /* END: SHELL */

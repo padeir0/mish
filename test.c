@@ -4,11 +4,15 @@
 #include "pami-shell.c"
 
 /* BEGIN: SHARED */
+
+#define PRINT_BUFFER_SIZE 2048
+char print_buffer[PRINT_BUFFER_SIZE] = {0};
+
 #define SHELL_MEMORY_SIZE 8192
 uint8_t shell_memory[SHELL_MEMORY_SIZE] = {0};
 
-char cmd1[] = "watch cmd:i2cscan port:8080\n";
-char cmd2[] = "cmd a:abcde b:123 c:0b101 d:0xCAFE e:123.0 f:\"\x68\U00000393\U000030AC\U000101FA\"\n";
+char cmd1[] = "def cmd:i2cscan port:8080\n";
+char cmd2[] = "echo a:abcde b:123 c:0b101 d:0xCAFE e:123.0 f:\"\x68\U00000393\U000030AC\U000101FA\"\n";
 /* END: SHARED*/
 
 
@@ -80,36 +84,36 @@ void lex_test() {
 /* END: LEX TEST */
 
 /* BEGIN: MAP TEST */
-atom atom_create_num_exact(uint64_t value) {
-  atom a;
-  a.kind = atk_exact_num;
-  a.contents.exact_num = value;
-  return a;
-}
+void print_atom(atom a) {
+  size_t offset = 0;
+  char* buffer = print_buffer;
+  size_t size = PRINT_BUFFER_SIZE;
 
-atom atom_create_num_inexact(double value) {
-  atom a;
-  a.kind = atk_inexact_num;
-  a.contents.exact_num = value;
-  return a;
-}
+  offset += snprint_atom(buffer+offset, size-offset, a);
 
-atom atom_create_str(char* s) {
-  atom a;
-  str string;
-  string.buffer = s;
-  string.length = strlen(s);
-  a.kind = atk_string;
-  a.contents.string = string;
-  return a;
+  printf("%.*s", (int)offset, buffer);
 }
 
 void print_kvpair(atom key, atom value) {
-  printf("(");
-  print_atom(key);
-  printf(", ");
-  print_atom(value);
-  printf(")");
+  size_t offset = 0;
+  char* buffer = print_buffer;
+  size_t size = PRINT_BUFFER_SIZE;
+  offset += snprintf(buffer+offset, size-offset, "(");
+  offset += snprint_atom(buffer+offset, size-offset, key);
+  offset += snprintf(buffer+offset, size-offset, ", ");
+  offset += snprint_atom(buffer+offset, size-offset, value);
+  offset += snprintf(buffer+offset, size-offset, ")");
+
+  printf("%.*s", (int)offset, buffer);
+}
+
+void print_arg_list(arg_list* list) {
+  size_t offset = 0;
+  char* buffer = print_buffer;
+  size_t size = PRINT_BUFFER_SIZE;
+
+  offset += snprint_arg_list(buffer+offset, size-offset, list);
+  printf("%.*s", (int)offset, buffer);
 }
 
 #define NUM_MAP_TEST_CASES 8
@@ -199,24 +203,28 @@ void map_test() {
 
 /* BEGIN: PARSE TEST */
 
+void parse_once(shell* s, char* cmd) {
+  arg_list* list;
+
+  list = pr_parse(cmd, strlen(cmd), s);
+  if (s->err.code != error_none) {
+    printf("parse error ocurred: %d\n", s->err.code);
+  }
+  print_arg_list(list);
+  printf("\n");
+}
+
 void parse_test() {
   shell s;
   error err;
-  arg_list* list;
   printf(">>>>>>>>>>>> PARSE TEST\n");
-
   err = new_shell(shell_memory, SHELL_MEMORY_SIZE, &s);
   if (err.code != error_none) {
     printf("error: %d\n", err.code);
     abort();
   }
-
-  list = pr_parse(cmd1, strlen(cmd1), &s);
-  if (s.err.code != error_none) {
-    printf("parse error ocurred: %d\n", s.err.code);
-  }
-  print_arg_list(list);
-  printf("\n");
+  parse_once(&s, cmd1);
+  parse_once(&s, cmd2);
 }
 
 /* END: PARSE TEST */

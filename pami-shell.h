@@ -13,12 +13,13 @@
 
 #define CFG_GRANULARITY               128
 #define CFG_ARG_ARENA_SIZE            16
-#define CFG_STR_ARENA_SIZE            64
-#define CFG_NODE_ARENA_SIZE           32
+#define CFG_NODE_ARENA_SIZE           16
 #define CFG_HASHMAP_BUCKET_ARRAY_SIZE 16
+#define CFG_OUT_BUFFER_SIZE           32
+#define CFG_STR_ARENA_SIZE            48
 
 /* END: CONFIG*/
-enum error_code {
+typedef enum {
   error_none,
   error_contract_violation,
   error_bad_rune,
@@ -31,8 +32,9 @@ enum error_code {
   error_expected_command,
   error_arena_null_buffer, /* 10 */
   error_arena_too_small,
-  error_variable_not_found
-};
+  error_variable_not_found,
+  error_insert_failed
+} error_code;
 
 typedef struct {
   int begin, end;
@@ -40,25 +42,30 @@ typedef struct {
 
 typedef struct {
   range range;
-  enum error_code code;
+  error_code code;
 } error;
-
 
 typedef struct {
   char* buffer;
   size_t length;
 } str;
 
-enum atom_kind {
+typedef enum {
   atk_string,
   atk_exact_num,
   atk_inexact_num,
   atk_command
-};
+} atom_kind;
 
 struct arg_list;
 struct shell;
-typedef error (*command)(struct shell* s, struct arg_list* args);
+typedef error_code (*command)(struct shell* s, struct arg_list* args);
+
+/* TODO: use named commands so that we can properly print them */
+typedef struct {
+  str name;
+  command cmd;
+} named_cmd;
 
 typedef struct {
   union {
@@ -67,15 +74,15 @@ typedef struct {
     double inexact_num;
     command cmd;
   } contents;
-  enum atom_kind kind;
+  atom_kind kind;
 } atom;
 
 bool atom_equals(atom a, atom b);
 
-enum arg_kind {
+typedef enum {
   ark_pair,
   ark_atom
-};
+} arg_kind;
 
 typedef struct {
   atom key;
@@ -83,7 +90,7 @@ typedef struct {
 } pair;
 
 typedef struct argument {
-  enum arg_kind kind;
+  arg_kind kind;
   union {
     pair pair;
     atom atom;
@@ -131,6 +138,10 @@ typedef struct shell {
   map map;
   arena* arg_arena;
   error err;
+
+  char* out_buffer;
+  size_t written;
+  size_t buff_size;
 } shell;
 
 error new_shell(uint8_t* buffer, size_t size, struct shell* s);
