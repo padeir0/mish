@@ -8,7 +8,7 @@
 #include <string.h>
 #include "pami-shell.h"
 
-#define SHELL_MEMORY_SIZE 4096
+#define SHELL_MEMORY_SIZE 2048
 uint8_t shell_memory[SHELL_MEMORY_SIZE] = {0};
 
 /* BEGIN: EVAL TEST */

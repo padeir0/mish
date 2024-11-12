@@ -13,9 +13,9 @@
 
 #define CFG_GRANULARITY               128
 #define CFG_ARG_ARENA_SIZE            16
-#define CFG_NODE_ARENA_SIZE           16
-#define CFG_HASHMAP_BUCKET_ARRAY_SIZE 16
-#define CFG_OUT_BUFFER_SIZE           32
+#define CFG_NODE_ARENA_SIZE           32
+#define CFG_HASHMAP_BUCKET_ARRAY_SIZE 8
+#define CFG_OUT_BUFFER_SIZE           24
 #define CFG_STR_ARENA_SIZE            48
 
 /* END: CONFIG*/
