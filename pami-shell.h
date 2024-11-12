@@ -23,17 +23,19 @@ typedef enum {
   error_none,
   error_contract_violation,
   error_bad_rune,
-  error_internal,
-  error_internal_lexer,
-  error_internal_parser, /* 5 */
   error_invalid_syntax,
   error_unrecognized_rune,
-  error_parser_out_of_memory,
+  error_parser_out_of_memory, /* 5 */
   error_expected_command,
-  error_arena_null_buffer, /* 10 */
+  error_arena_null_buffer,
   error_arena_too_small,
   error_variable_not_found,
-  error_insert_failed
+  error_insert_failed, /* 10 */
+  error_internal,
+  error_internal_lexer,
+  error_internal_parser,
+  error_internal_exp_atom,
+  error_internal_exp_cmd /* 15 */
 } error_code;
 
 typedef struct {
@@ -76,8 +78,6 @@ typedef struct {
   } contents;
   atom_kind kind;
 } atom;
-
-bool atom_equals(atom a, atom b);
 
 typedef enum {
   ark_pair,
@@ -144,5 +144,23 @@ typedef struct shell {
   size_t buff_size;
 } shell;
 
-error new_shell(uint8_t* buffer, size_t size, struct shell* s);
-error run(struct shell* s, char* cmd);
+error_code shell_new(uint8_t* buffer, size_t size, struct shell* s);
+error_code shell_eval(shell* s, char* cmd, size_t cmd_size);
+bool  shell_new_cmd(shell* s, char* name, command cmd);
+size_t shell_write_atom(shell* s, atom a);
+size_t shell_write_arg(shell* s, argument a);
+size_t shell_write_strlit(shell* s, char* string);
+
+error_code builtin_hard_clear(shell* s, arg_list* list);
+error_code builtin_echo(shell* s, arg_list* list);
+error_code builtin_def(shell* s, arg_list* list);
+
+atom atom_create_num_exact(uint64_t value);
+atom atom_create_num_inexact(double value);
+atom atom_create_str(char* s);
+atom atom_create_cmd(command cmd);
+bool atom_equals(atom a, atom b);
+
+size_t snprint_atom(char* buffer, size_t size, atom a);
+size_t snprint_arg(char* buffer, size_t size, argument a);
+size_t snprint_arg_list(char* buffer, size_t size, arg_list* list);

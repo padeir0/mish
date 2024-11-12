@@ -13,14 +13,15 @@ uint8_t shell_memory[SHELL_MEMORY_SIZE] = {0};
 
 char cmd1[] = "def cmd:i2cscan port:8080\n";
 char cmd2[] = "echo a:abcde b:123 c:0b101 d:0xCAFE e:123.0 f:\"\x68\U00000393\U000030AC\U000101FA\"\n";
+char cmd3[] = "echo $cmd $port\n";
 /* END: SHARED*/
 
 
 /* BEGIN: UTF8 TEST */
 char* utf8_test_data = "\x68\U00000393\U000030AC\U000101FA";
 
-void check_rune(char** curr_char, rune expected) {
-  rune r;
+void check_rune(char** curr_char, utf8_rune expected) {
+  utf8_rune r;
   size_t rune_size;
   rune_size = utf8_decode(*curr_char, &r);
   if (rune_size > 0) {
@@ -51,7 +52,7 @@ void utf8_test() {
 
 /* BEGIN: LEX TEST */
 
-void print_lexeme(const char* input, lexeme l) {
+void print_lexeme(const char* input, lex_lexeme l) {
   size_t begin = l.begin;
   putchar('"');
   while (begin < l.end) {
@@ -64,13 +65,13 @@ void print_lexeme(const char* input, lexeme l) {
 
 void lex_test_once(char* s) {
   printf("%s", s);
-  lexer l = lex_new_lexer(s, strlen(s));
+  lex l = lex_new(s, strlen(s));
   
-  while (lex_next(&l) && l.lexeme.kind != lk_eof) {
+  while (lex_next(&l) && l.lexeme.kind != lex_kind_eof) {
     print_lexeme(l.input, l.lexeme);
   }
 
-  if (l.lexeme.kind != lk_eof) {
+  if (l.lexeme.kind != lex_kind_eof) {
     printf("lex error at %d:%d number %d\n", l.err.range.begin, l.err.range.end, l.err.code);
     abort();
   } 
@@ -173,16 +174,16 @@ void map_test_once(shell* s) {
 
 void map_test() {
   shell s;
-  error err;
+  error_code err;
   int i;
 
   printf(">>>>>>>>>>>> MAP TEST\n");
   fill_test_cases();
   
-  err = new_shell(shell_memory, SHELL_MEMORY_SIZE, &s);
+  err = shell_new(shell_memory, SHELL_MEMORY_SIZE, &s);
   
-  if (err.code != error_none) {
-    printf("error: %d\n", err.code);
+  if (err != error_none) {
+    printf("error: %d\n", err);
     abort();
   }
 
@@ -206,7 +207,7 @@ void map_test() {
 void parse_once(shell* s, char* cmd) {
   arg_list* list;
 
-  list = pr_parse(cmd, strlen(cmd), s);
+  list = par_parse(cmd, strlen(cmd), s);
   if (s->err.code != error_none) {
     printf("parse error ocurred: %d\n", s->err.code);
   }
@@ -216,11 +217,11 @@ void parse_once(shell* s, char* cmd) {
 
 void parse_test() {
   shell s;
-  error err;
+  error_code err;
   printf(">>>>>>>>>>>> PARSE TEST\n");
-  err = new_shell(shell_memory, SHELL_MEMORY_SIZE, &s);
-  if (err.code != error_none) {
-    printf("error: %d\n", err.code);
+  err = shell_new(shell_memory, SHELL_MEMORY_SIZE, &s);
+  if (err != error_none) {
+    printf("error: %d\n", err);
     abort();
   }
   parse_once(&s, cmd1);
@@ -229,10 +230,56 @@ void parse_test() {
 
 /* END: PARSE TEST */
 
+/* BEGIN: EVAL TEST */
+
+char* commands[] = {
+  "def cmd:i2cscan port:8080\n",
+  "echo $cmd $port\n",
+};
+char* expected[] = {
+  "",
+  "\"i2cscan\"; 8080;",
+};
+
+void eval_once(shell* s, char* cmd) {
+  size_t size;
+  error_code err;
+
+  printf("> %s", cmd);
+
+  size = strlen(cmd);
+  err = shell_eval(s, cmd, size);
+  if (err != error_none) {
+    printf("error: %d\n", err);
+    abort();
+  }
+
+  printf("%.*s\n", (int)s->written, s->out_buffer);
+}
+
+void eval_test() {
+  shell s;
+  error_code err;
+  printf(">>>>>>>>>>>> EVAL TEST\n");
+  err = shell_new(shell_memory, SHELL_MEMORY_SIZE, &s);
+  if (err != error_none) {
+    printf("error: %d\n", err);
+    abort();
+  }
+
+  shell_new_cmd(&s, "def", builtin_def);
+  shell_new_cmd(&s, "echo", builtin_echo);
+  
+  eval_once(&s, cmd1);
+  eval_once(&s, cmd3);
+}
+/* END: EVAL TEST */
+
 int main() {
   utf8_test();
   lex_test();
   map_test();
   parse_test();
+  eval_test();
   return 0;
 }

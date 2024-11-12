@@ -1,8 +1,10 @@
 #include "pami-shell.h"
 #include <limits.h>
 #include <strings.h>
+#include <string.h>
+#include <stdio.h>
 
-/* BEGIN: UTILITARIES */
+/* BEGIN: ATOM NAMESPACE */
 atom atom_create_num_exact(uint64_t value) {
   atom a;
   a.kind = atk_exact_num;
@@ -61,15 +63,19 @@ bool atom_equals(atom a, atom b) {
       return false;
   }
 }
+/* END: ATOM NAMESPACE */
 
+/* BEGIN: SNPRINT NAMESPACE */
 size_t snprint_atom(char* buffer, size_t size, atom a) {
   size_t offset = 0;
+  if (buffer == NULL) {
+    return 0;
+  }
   switch (a.kind) {
     case atk_string:
-      offset = snprintf(buffer, size, "(\"%.*s\", %ld)",
+      offset = snprintf(buffer, size, "\"%.*s\"",
                         (int)a.contents.string.length,
-                        a.contents.string.buffer,
-                        a.contents.string.length);
+                        a.contents.string.buffer);
       break;
     case atk_exact_num:
       offset = snprintf(buffer, size, "%ld", a.contents.exact_num);
@@ -124,9 +130,9 @@ size_t snprint_arg_list(char* buffer, size_t size, arg_list* list) {
   }
   return offset;
 }
-/* END: UTILITARIES */
+/* END: SNPRINT NAMESPACE */
 
-/* BEGIN: ARENA ALLOCATOR */
+/* BEGIN: ARENA NAMESPACE */
 typedef enum {
   arena_OK,
   arena_NULL_BUFF,
@@ -136,7 +142,7 @@ typedef enum {
 char* arena_str_res(arena_RES res);
 
 /* returns a arena allocated at the beginning of the buffer */
-arena* new_arena(uint8_t* buffer, size_t size, arena_RES* res);
+arena* arena_new(uint8_t* buffer, size_t size, arena_RES* res);
 
 /* returns NULL if it fails to allocate */
 void* arena_alloc(arena* a, size_t size);
@@ -180,15 +186,7 @@ char* arena_str_res(arena_RES res) {
   return "???";
 }
 
-size_t distance(uint8_t* a, uint8_t* b) {
-  if (a > b) {
-    return a-b;
-  } else {
-    return b-a;
-  }
-}
-
-arena* new_arena(uint8_t* buffer, size_t size, arena_RES* res) {
+arena* arena_new(uint8_t* buffer, size_t size, arena_RES* res) {
   arena* out;
   if (buffer == NULL) {
     *res = arena_NULL_BUFF;
@@ -243,17 +241,17 @@ bool arena_empty(arena* a) {
 }
 /* END: ARENA ALLOCATOR*/
 
-/* BEGIN: UTF-8 DECODER */
+/* BEGIN: UTF8 NAMESPACE */
 #define LOW_BITS(n) (uint8_t)((1<<n)-1)
 #define TOP_BITS(n) (uint8_t)(~((1<<(8-n))-1))
 
-typedef int32_t rune;
+typedef int32_t utf8_rune;
 
-#define EoF (rune)0
+#define utf8_EoF (utf8_rune)0
 
-size_t utf8_decode(const char* buffer, rune* r) {
+size_t utf8_decode(const char* buffer, utf8_rune* r) {
   if ((buffer[0] & TOP_BITS(1)) == 0) { /* ASCII */
-    *r = (rune)buffer[0];
+    *r = (utf8_rune)buffer[0];
     return 1;
   }
 
@@ -263,8 +261,8 @@ size_t utf8_decode(const char* buffer, rune* r) {
       *r = -1;
       return 0;
     }
-    *r = (rune)(buffer[0] & LOW_BITS(5)) << 6 |
-         (rune)(buffer[1] & LOW_BITS(6));
+    *r = (utf8_rune)(buffer[0] & LOW_BITS(5)) << 6 |
+         (utf8_rune)(buffer[1] & LOW_BITS(6));
     return 2;
   }
 
@@ -275,9 +273,9 @@ size_t utf8_decode(const char* buffer, rune* r) {
       *r = -1;
       return 0;
     }
-    *r = (rune)(buffer[0] & LOW_BITS(4)) << 12 |
-         (rune)(buffer[1] & LOW_BITS(6)) << 6 |
-         (rune)(buffer[2] & LOW_BITS(6));
+    *r = (utf8_rune)(buffer[0] & LOW_BITS(4)) << 12 |
+         (utf8_rune)(buffer[1] & LOW_BITS(6)) << 6 |
+         (utf8_rune)(buffer[2] & LOW_BITS(6));
     return 3;
   }
 
@@ -289,10 +287,10 @@ size_t utf8_decode(const char* buffer, rune* r) {
       *r = -1;
       return 0;
     }
-    *r = (rune)(buffer[0] & LOW_BITS(3)) << 18 |
-         (rune)(buffer[1] & LOW_BITS(6)) << 12 |
-         (rune)(buffer[2] & LOW_BITS(6)) << 6 |
-         (rune)(buffer[3] & LOW_BITS(6));
+    *r = (utf8_rune)(buffer[0] & LOW_BITS(3)) << 18 |
+         (utf8_rune)(buffer[1] & LOW_BITS(6)) << 12 |
+         (utf8_rune)(buffer[2] & LOW_BITS(6)) << 6 |
+         (utf8_rune)(buffer[3] & LOW_BITS(6));
     return 4;
   }
 
@@ -300,10 +298,18 @@ size_t utf8_decode(const char* buffer, rune* r) {
   *r = -1;
   return 0;
 }
-/* END: UTF-8 DECODER */
+/* END: UTF8 NAMESPACE */
 
-/* BEGIN: HASHMAP */
-uint32_t murmur_hash(char* buff, size_t size) {
+/* BEGIN: MAP NAMESPACE */
+/* implements a simple hashmap on top of a linked list
+ * and a linear allocator. Because of the allocation strategy
+ * used, "update" and "remove" procedures do not exist.
+ * Just like the linear(arena) allocator, things can only
+ * be removed from the map all at once.
+ * I'd call this a "linear map" just to piss off mathematicians,
+ * but it's better to call it a "linear hashmap".
+ */
+uint32_t map_murmur_hash(char* buff, size_t size) {
   uint32_t out = 0xCAFEBABE;
   size_t i;
   for (i = 0; i < size; i++) {
@@ -314,7 +320,7 @@ uint32_t murmur_hash(char* buff, size_t size) {
 }
 
 uint32_t map_hash_str(str s) {
-  return murmur_hash(s.buffer, s.length);
+  return map_murmur_hash(s.buffer, s.length);
 }
 
 uint32_t map_hash_exact(uint64_t num) {
@@ -322,7 +328,7 @@ uint32_t map_hash_exact(uint64_t num) {
 }
 
 uint32_t map_hash_inexact(double num) {
-  return murmur_hash((char*)&num, sizeof(double));
+  return map_murmur_hash((char*)&num, sizeof(double));
 }
 
 uint32_t map_hash_cmd(command cmd) {
@@ -347,7 +353,7 @@ uint32_t map_hash(atom a) {
 /* we need to copy the string to the internal buffer 
  * so it can live beyond the lifetime of command execution
  */
-bool copy_atom(map* m, atom* dest, atom* source) {
+bool map_copy_atom(map* m, atom* dest, atom* source) {
   str source_s;
   str dest_s;
   
@@ -396,8 +402,8 @@ bool map_insert(map* m, atom key, atom value) {
     return false;
   }
   n->next = NULL;
-  if (copy_atom(m, &(n->key), &key)     == false ||
-      copy_atom(m, &(n->value), &value) == false) {
+  if (map_copy_atom(m, &(n->key), &key)     == false ||
+      map_copy_atom(m, &(n->value), &value) == false) {
     return false;
   }
 
@@ -450,26 +456,29 @@ bool map_is_empty(map* m) {
   return arena_empty(m->str_arena) &&
          arena_empty(m->node_arena);
 }
+/* END: MAP NAMESPACE */
 
-/* END: HASHMAP*/
-
-/* BEGIN: LEXER */
+/* BEGIN: LEX NAMESPACE */
+/* This implements a simple lexer, most of the parsing
+ * actually occurs here, since the microsyntax is more
+ * complicated than the macrosyntax.
+ */
 typedef enum {
-  lk_bad,
-  lk_num,
-  lk_str,
-  lk_colon,
-  lk_id,
-  lk_dollar,
-  lk_newline,
-  lk_eof
+  lex_kind_bad,
+  lex_kind_num,
+  lex_kind_str,
+  lex_kind_colon,
+  lex_kind_id,
+  lex_kind_dollar,
+  lex_kind_newline,
+  lex_kind_eof
 } lex_kind;
 
 typedef enum {
-  vk_none,
-  vk_exact_num,
-  vk_inexact_num
-} val_kind;
+  lex_valkind_none,
+  lex_valkind_exact_num,
+  lex_valkind_inexact_num
+} lex_valkind;
 
 typedef union {
   uint64_t exact_num;
@@ -478,44 +487,44 @@ typedef union {
 
 typedef struct {
   lex_kind kind;
-  val_kind vkind;
+  lex_valkind vkind;
 
   size_t begin;
   size_t end;
 
   lex_value value;
-} lexeme;
+} lex_lexeme;
 
 /* cheaper than strlen */
-int lex_lexeme_len(lexeme l) {
+int lex_lexeme_len(lex_lexeme l) {
   return l.end - l.begin;
 }
 
 /* hopefully will be inlined */
-char* lex_lexeme_str(const char* input, lexeme l) {
+char* lex_lexeme_str(const char* input, lex_lexeme l) {
   return (char*)(input + l.begin);
 }
 
 typedef struct {
   const char* input;
   size_t input_size;
-  lexeme lexeme;
+  lex_lexeme lexeme;
   error err;
-} lexer;
+} lex;
 
-lexer lex_new_lexer(const char* input, size_t size) {
-  lexer l;
+lex lex_new(const char* input, size_t size) {
+  lex l;
   l.input = input;
   l.input_size = size;
   l.lexeme.begin = 0;
   l.lexeme.end = 0;
-  l.lexeme.vkind = vk_none;
-  l.lexeme.kind = lk_bad;
+  l.lexeme.vkind = lex_valkind_none;
+  l.lexeme.kind = lex_kind_bad;
   l.err.code = error_none;
   return l;
 }
 
-void lex_print_lexeme(lexer* l) {
+void lex_print_lexeme(lex* l) {
   printf("{begin: %ld, end: %ld, kind: %d, text: \"%.*s\"}\n",
          l->lexeme.begin,
          l->lexeme.end,
@@ -524,7 +533,7 @@ void lex_print_lexeme(lexer* l) {
          lex_lexeme_str(l->input, l->lexeme));
 }
 
-error lex_base_err(lexer* l) {
+error lex_base_err(lex* l) {
   error err;
   err.code = error_none;
   err.range.begin = l->lexeme.begin;
@@ -532,24 +541,24 @@ error lex_base_err(lexer* l) {
   return err;
 }
 
-error lex_err(lexer* l, error_code code) {
+error lex_err(lex* l, error_code code) {
   error err = lex_base_err(l);
   err.code = code;
   return err;
 }
 
-error lex_err_internal(lexer* l) {
+error lex_err_internal(lex* l) {
   error err = lex_base_err(l);
   err.code = error_internal_lexer;
   return err;
 }
 
-rune lex_next_rune(lexer* l) {
-  rune r;
+utf8_rune lex_next_rune(lex* l) {
+  utf8_rune r;
   size_t size;
 
   if (l->lexeme.end >= l->input_size) {
-    return EoF;
+    return utf8_EoF;
   }
   
   size = utf8_decode(l->input + l->lexeme.end, &r);
@@ -561,11 +570,11 @@ rune lex_next_rune(lexer* l) {
   return r;
 }
 
-rune lex_peek_rune(lexer* l) {
-  rune r;
+utf8_rune lex_peek_rune(lex* l) {
+  utf8_rune r;
   size_t size;
   if (l->lexeme.end >= l->input_size) {
-    return EoF;
+    return utf8_EoF;
   }
 
   size = utf8_decode(l->input + l->lexeme.end, &r);
@@ -577,44 +586,44 @@ rune lex_peek_rune(lexer* l) {
   return r;
 }
 
-void lex_ignore(lexer* l) {
+void lex_ignore(lex* l) {
   l->lexeme.begin = l->lexeme.end;
-  l->lexeme.kind = lk_bad;
+  l->lexeme.kind = lex_kind_bad;
 }
 
-typedef bool (*validator)(rune);
+typedef bool (*lex_validator)(utf8_rune);
 
-bool lex_is_decdigit(rune r) {
+bool lex_is_decdigit(utf8_rune r) {
   return (r >= '0' && r <= '9') ||
          (r == '_');
 }
 
-bool lex_is_hexdigit(rune r) {
+bool lex_is_hexdigit(utf8_rune r) {
   return (r >= '0' && r <= '9') ||
          (r >= 'a' && r <= 'f') ||
          (r >= 'A' && r <= 'F') ||
          (r == '_');
 }
 
-bool lex_is_bindigit(rune r) {
+bool lex_is_bindigit(utf8_rune r) {
   return (r == '0') ||
          (r == '1') ||
          (r == '_');
 }
 
-bool lex_is_idchar(rune r) {
+bool lex_is_idchar(utf8_rune r) {
   return (r >= 'a' && r <= 'z') ||
          (r >= 'A' && r <= 'Z') ||
          (r == '~') || (r == '+') ||
          (r == '-') || (r == '_') ||
          (r == '*') || (r == '/') ||
          (r == '?') || (r == '=') ||
-         (r == '&') || (r == '$') ||
+         (r == '&') || 
          (r == '%') || (r == '<') ||
          (r == '>') || (r == '!');
 }
 
-bool lex_is_idcharnum(rune r) {
+bool lex_is_idcharnum(utf8_rune r) {
   return (r >= '0' && r <= '9') ||
          (r >= 'a' && r <= 'z') ||
          (r >= 'A' && r <= 'Z') ||
@@ -622,25 +631,25 @@ bool lex_is_idcharnum(rune r) {
          (r == '-') || (r == '_') ||
          (r == '*') || (r == '/') ||
          (r == '?') || (r == '=') ||
-         (r == '&') || (r == '$') ||
+         (r == '&') || 
          (r == '%') || (r == '<') ||
          (r == '>') || (r == '!');
 }
 
-bool lex_is_whitespace(rune r) {
+bool lex_is_whitespace(utf8_rune r) {
   return (r == ' ') || (r == '\r') || (r == '\t');
 }
 
-bool lex_is_special_dq_str_char(rune r) {
+bool lex_is_special_dq_str_char(utf8_rune r) {
   return (r == '\\') || (r == '"');
 }
 
-bool lex_is_special_sq_str_char(rune r) {
+bool lex_is_special_sq_str_char(utf8_rune r) {
   return (r == '\\') || (r == '\'');
 }
 
-bool lex_accept_run(lexer* l, validator v) {
-  rune r = lex_peek_rune(l);
+bool lex_accept_run(lex* l, lex_validator v) {
+  utf8_rune r = lex_peek_rune(l);
   if (r < 0) {
     return false;
   }
@@ -655,8 +664,8 @@ bool lex_accept_run(lexer* l, validator v) {
   return true;
 }
 
-bool lex_accept_until(lexer* l, validator v) {
-  rune r = lex_peek_rune(l);
+bool lex_accept_until(lex* l, lex_validator v) {
+  utf8_rune r = lex_peek_rune(l);
   if (r < 0) {
     return false;
   }
@@ -671,10 +680,10 @@ bool lex_accept_until(lexer* l, validator v) {
   return true;
 }
 
-bool lex_read_strlit(lexer* l, char delim) {
-  rune r = lex_peek_rune(l);
+bool lex_read_strlit(lex* l, char delim) {
+  utf8_rune r = lex_peek_rune(l);
   bool ok;
-  validator val;
+  lex_validator val;
   if (r != delim) {
     l->err = lex_err(l, error_internal_lexer);
     return false;
@@ -694,7 +703,7 @@ bool lex_read_strlit(lexer* l, char delim) {
 
     if (r == delim) {
       lex_next_rune(l);
-      l->lexeme.kind = lk_str;
+      l->lexeme.kind = lex_kind_str;
       return true;
     }
 
@@ -708,7 +717,7 @@ bool lex_read_strlit(lexer* l, char delim) {
   }
 }
 
-bool lex_conv_hex(lexer* l, uint64_t* value) {
+bool lex_conv_hex(lex* l, uint64_t* value) {
   /* jump the '0x' */
   char* begin = (char*)l->input + l->lexeme.begin + 2;
   char* end = (char*)l->input + l->lexeme.end;
@@ -737,7 +746,7 @@ bool lex_conv_hex(lexer* l, uint64_t* value) {
   return true;
 }
 
-bool lex_conv_bin(lexer* l, uint64_t* value) {
+bool lex_conv_bin(lex* l, uint64_t* value) {
   /* jump the '0b' */
   char* begin = (char*)l->input + l->lexeme.begin + 2;
   char* end = (char*)l->input + l->lexeme.end;
@@ -762,7 +771,7 @@ bool lex_conv_bin(lexer* l, uint64_t* value) {
   return true;
 }
 
-bool lex_conv_dec(lexer* l, uint64_t* value) {
+bool lex_conv_dec(lex* l, uint64_t* value) {
   char* begin = (char*)l->input + l->lexeme.begin;
   char* end = (char*)l->input + l->lexeme.end;
   char c;
@@ -786,7 +795,7 @@ bool lex_conv_dec(lexer* l, uint64_t* value) {
   return true;
 }
 
-bool lex_conv_inexact(lexer* l, double* value) {
+bool lex_conv_inexact(lex* l, double* value) {
   char* begin = (char*)l->input + l->lexeme.begin;
   char* end = (char*)l->input + l->lexeme.end;
   char c;
@@ -820,8 +829,8 @@ bool lex_conv_inexact(lexer* l, double* value) {
   return true;
 }
 
-bool lex_read_number(lexer* l) {
-  rune r = lex_peek_rune(l);
+bool lex_read_number(lex* l) {
+  utf8_rune r = lex_peek_rune(l);
   bool ok;
   uint64_t exact_value;
   double inexact_value;
@@ -843,8 +852,8 @@ bool lex_read_number(lexer* l) {
           return false;
         }
         l->lexeme.value.exact_num = exact_value;
-        l->lexeme.vkind = vk_exact_num;
-        l->lexeme.kind = lk_num;
+        l->lexeme.vkind = lex_valkind_exact_num;
+        l->lexeme.kind = lex_kind_num;
         return true;
       case 'b':
         lex_next_rune(l);
@@ -857,8 +866,8 @@ bool lex_read_number(lexer* l) {
           return false;
         }
         l->lexeme.value.exact_num = exact_value;
-        l->lexeme.vkind = vk_exact_num;
-        l->lexeme.kind = lk_num;
+        l->lexeme.vkind = lex_valkind_exact_num;
+        l->lexeme.kind = lex_kind_num;
         return true;
     }
   }
@@ -878,28 +887,28 @@ bool lex_read_number(lexer* l) {
       return false;
     }
     l->lexeme.value.inexact_num = inexact_value;
-    l->lexeme.vkind = vk_inexact_num;
-    l->lexeme.kind = lk_num;
+    l->lexeme.vkind = lex_valkind_inexact_num;
+    l->lexeme.kind = lex_kind_num;
   } else {
     ok = lex_conv_dec(l, &exact_value);
     if (ok == false) {
       return false;
     }
     l->lexeme.value.exact_num = exact_value;
-    l->lexeme.vkind = vk_exact_num;
-    l->lexeme.kind = lk_num;
+    l->lexeme.vkind = lex_valkind_exact_num;
+    l->lexeme.kind = lex_kind_num;
   }
   return true;
 }
 
-bool lex_read_identifier(lexer* l) {
-  rune r = lex_peek_rune(l);
+bool lex_read_identifier(lex* l) {
+  utf8_rune r = lex_peek_rune(l);
   bool ok;
   if (lex_is_idchar(r) == false){
     l->err = lex_err(l, error_internal_lexer);
     return false;
   }
-  l->lexeme.kind = lk_id;
+  l->lexeme.kind = lex_kind_id;
   ok = lex_accept_run(l, lex_is_idcharnum);
   if (ok == false) {
     return false;
@@ -907,8 +916,8 @@ bool lex_read_identifier(lexer* l) {
   return true;
 }
 
-bool lex_ignore_whitespace(lexer* l) {
-  rune r = lex_peek_rune(l);
+bool lex_ignore_whitespace(lex* l) {
+  utf8_rune r = lex_peek_rune(l);
   if (r < 0) {
     return false;
   }
@@ -928,8 +937,8 @@ bool lex_ignore_whitespace(lexer* l) {
   return true;
 }
 
-bool lex_read_any(lexer* l) {
-  rune r;
+bool lex_read_any(lex* l) {
+  utf8_rune r;
   bool ok = lex_ignore_whitespace(l);
   if (ok == false) {
     return false;
@@ -949,18 +958,18 @@ bool lex_read_any(lexer* l) {
       return lex_read_strlit(l, '\'');
     case ':':
       lex_next_rune(l);
-      l->lexeme.kind = lk_colon;
+      l->lexeme.kind = lex_kind_colon;
       break;
     case '$':
       lex_next_rune(l);
-      l->lexeme.kind = lk_dollar;
+      l->lexeme.kind = lex_kind_dollar;
       break;
     case '\n':
       lex_next_rune(l);
-      l->lexeme.kind = lk_newline;
+      l->lexeme.kind = lex_kind_newline;
       break;
-    case EoF:
-      l->lexeme.kind = lk_eof;
+    case utf8_EoF:
+      l->lexeme.kind = lex_kind_eof;
       break;
     default:
       l->err = lex_err(l, error_unrecognized_rune);
@@ -974,14 +983,14 @@ bool lex_read_any(lexer* l) {
  * and returns false if there was some error.
  * the error is stored in lexer.err
  */
-bool lex_next(lexer* l) {
+bool lex_next(lex* l) {
   l->lexeme.begin = l->lexeme.end;
   return lex_read_any(l);
 }
-/* END: LEXER */
+/* END: LEX NAMESPACE */
 
 
-/* BEGIN: PARSER */
+/* BEGIN: PAR NAMESPACE */
 /* parser is technically recursive descent, but without
  * any recursion, since the grammar is not recursive
  *
@@ -989,80 +998,77 @@ bool lex_next(lexer* l) {
  * the environment, so that it's not only parsing, but
  * also name resolution
  */
-str create_string(lexer* l) {
+str par_create_string(lex* l) {
   str s;
   s.length = lex_lexeme_len(l->lexeme) -2; /* minus delimiters */
   s.buffer = lex_lexeme_str(l->input, l->lexeme) + 1; /* jump first delimiter */
   return s;
 }
 
-str create_string_from_id(lexer* l) {
+str par_create_string_from_id(lex* l) {
   str s;
   s.length = lex_lexeme_len(l->lexeme);
   s.buffer = lex_lexeme_str(l->input, l->lexeme);
   return s;
 }
 
-bool create_atom(lexer* l, shell* ctx, atom* a) {
+bool par_create_atom(lex* l, shell* ctx, atom* a) {
   bool ok;
 
   switch (l->lexeme.kind) {
-    case lk_str:
+    case lex_kind_str:
       a->kind = atk_string;
-      a->contents.string = create_string(l);
+      a->contents.string = par_create_string(l);
       break;
-    case lk_id:
+    case lex_kind_id:
       a->kind = atk_string;
-      a->contents.string = create_string_from_id(l);
+      a->contents.string = par_create_string_from_id(l);
       break;
-    case lk_num:
+    case lex_kind_num:
       switch (l->lexeme.vkind) {
-      case vk_exact_num:
+      case lex_valkind_exact_num:
         a->kind = atk_exact_num;
         a->contents.exact_num = l->lexeme.value.exact_num;
         break;
-      case vk_inexact_num:
+      case lex_valkind_inexact_num:
         a->kind = atk_inexact_num;
         a->contents.inexact_num = l->lexeme.value.inexact_num;
         break;
       default:
-        printf("unfanthomable value kind\n");
         return false;
       }
       break;
     default:
-      printf("unfanthomable kind\n");
       return false;
   }
   ok = lex_next(l);
   if (!ok) {
     ctx->err = l->err;
-    printf("lex_next error\n");
     return false;
   }
   return true;
 }
 
-bool eval_variable(shell* ctx, atom* a) {
+bool par_eval_variable(shell* ctx, atom* a) {
   return map_find(&ctx->map, *a, a);
 }
 
 /* TODO: verify if errors are good */
 /* Atom = ['$'] (id | num | str). */
-bool pr_parse_atom(lexer* l, atom* a, shell* ctx) {
+bool par_parse_atom(lex* l, atom* a, shell* ctx) {
   bool is_var = false;
   bool ok;
 
   switch (l->lexeme.kind) {
-    case lk_newline:
+    case lex_kind_newline:
       return false;
-    case lk_eof:
+    case lex_kind_eof:
       return false;
     default:
       break;
   }
 
-  if (l->lexeme.kind == lk_dollar) {
+  if (l->lexeme.kind == lex_kind_dollar) {
     is_var = true;
 
     ok = lex_next(l);
@@ -1072,14 +1078,13 @@ bool pr_parse_atom(lexer* l, atom* a, shell* ctx) {
     }
   }
 
-  if (create_atom(l, ctx, a) == false) {
-    printf("boop\n");
+  if (par_create_atom(l, ctx, a) == false) {
     ctx->err = lex_err(l, error_internal_parser);
     return false;
   }
 
   if (is_var) {
-    ok = eval_variable(ctx, a);
+    ok = par_eval_variable(ctx, a);
     if (!ok) {
       ctx->err.code = error_variable_not_found;
       return false;
@@ -1090,24 +1095,24 @@ bool pr_parse_atom(lexer* l, atom* a, shell* ctx) {
 }
 
 /* Pair = Atom [':' Atom]. */
-bool pr_parse_arg(lexer* l, shell* ctx, argument* arg) {
+bool par_parse_arg(lex* l, shell* ctx, argument* arg) {
   atom at1;
   atom at2;
   pair p;
   bool ok;
 
-  if (pr_parse_atom(l, &at1, ctx) == false) {
+  if (par_parse_atom(l, &at1, ctx) == false) {
     return false;
   }
 
-  if (l->lexeme.kind == lk_colon) {
+  if (l->lexeme.kind == lex_kind_colon) {
     ok = lex_next(l);
     if (!ok) {
       ctx->err = l->err;
       return false;
     }
 
-    if (pr_parse_atom(l, &at2, ctx) == false) {
+    if (par_parse_atom(l, &at2, ctx) == false) {
       return false;
     }
 
@@ -1122,18 +1127,17 @@ bool pr_parse_arg(lexer* l, shell* ctx, argument* arg) {
   return true;
 }
 
-bool pr_parse_cmd(lexer* l, shell* ctx, argument* arg) {
+bool par_parse_cmd(lex* l, shell* ctx, argument* arg) {
   atom a;
   bool ok;
   arg->kind = ark_atom;
 
-  if (create_atom(l, ctx, &a) == false) {
-    printf("beep\n");
+  if (par_create_atom(l, ctx, &a) == false) {
     ctx->err = lex_err(l, error_internal_parser);
     return false;
   }
 
-  ok = eval_variable(ctx, &a);
+  ok = par_eval_variable(ctx, &a);
   if (!ok) {
     ctx->err.code = error_variable_not_found;
     return false;
@@ -1144,13 +1148,15 @@ bool pr_parse_cmd(lexer* l, shell* ctx, argument* arg) {
 }
 
 /* Command = id {Pair} '\n'. */
-arg_list* pr_parse(char* input, size_t input_size, shell* ctx) {
-  lexer l = lex_new_lexer(input, input_size);
+arg_list* par_parse(char* input, size_t input_size, shell* ctx) {
+  lex l = lex_new(input, input_size);
   arg_list* root;
   arg_list* list;
   argument arg;
   bool ok;
   ctx->err.code = error_none;
+
+  arena_free_all(ctx->arg_arena);
 
   ok = lex_next(&l);
   if (!ok) {
@@ -1158,7 +1164,7 @@ arg_list* pr_parse(char* input, size_t input_size, shell* ctx) {
     return NULL;
   }
 
-  if (l.lexeme.kind != lk_id) {
+  if (l.lexeme.kind != lex_kind_id) {
     ctx->err = lex_err(&l, error_expected_command);
     return NULL;
   }
@@ -1170,14 +1176,14 @@ arg_list* pr_parse(char* input, size_t input_size, shell* ctx) {
   }
   root = list;
 
-  ok = pr_parse_cmd(&l, ctx, &arg);
+  ok = par_parse_cmd(&l, ctx, &arg);
   if (!ok && ctx->err.code != error_none) {
     return NULL;
   }
 
   list->arg = arg;
   
-  while (pr_parse_arg(&l, ctx, &arg)) {
+  while (par_parse_arg(&l, ctx, &arg)) {
     list->next = (arg_list*) arena_alloc(ctx->arg_arena, sizeof(arg_list));
     if (list->next == NULL) {
       ctx->err = lex_err(&l, error_parser_out_of_memory);
@@ -1194,9 +1200,9 @@ arg_list* pr_parse(char* input, size_t input_size, shell* ctx) {
   list->next = NULL;
   return root;
 }
-/* END: PARSER */
+/* END: PAR NAMESPACE */
 
-/* BEGIN: SHELL */
+/* BEGIN: SHELL NAMESPACE */
 size_t shell_write_atom(shell* s, atom a) {
   size_t offset = snprint_atom(s->out_buffer + s->written, s->buff_size - s->written, a);
   s->written += offset;
@@ -1215,6 +1221,81 @@ size_t shell_write_strlit(shell* s, char* string) {
   return offset;
 }
 
+bool shell_new_cmd(shell* s, char* name, command cmd) {
+  return map_insert(&s->map, atom_create_str(name), atom_create_cmd(cmd));
+}
+
+/* TODO: make sure memory is aligned */
+error_code shell_new(uint8_t* buffer, size_t size, shell* s) {
+  uint8_t* start;
+  size_t region_size;
+  arena_RES res;
+  error_code err = error_none;
+  s->err.code = error_none;
+
+  start = buffer;
+  region_size = (size*CFG_ARG_ARENA_SIZE)/CFG_GRANULARITY;
+  s->arg_arena = arena_new(start, region_size, &res);
+  if (res != arena_OK) {
+    return arena_map_res(res);
+  }
+
+  start += region_size;
+  region_size = (size*CFG_STR_ARENA_SIZE)/CFG_GRANULARITY;
+  s->map.str_arena = arena_new(start, region_size, &res);
+  if (res != arena_OK) {
+    return arena_map_res(res);
+  }
+
+  start += region_size;
+  region_size = (size*CFG_NODE_ARENA_SIZE)/CFG_GRANULARITY;
+  s->map.node_arena = arena_new(start, region_size, &res);
+  if (res != arena_OK) {
+    return arena_map_res(res);
+  }
+
+  start += region_size;
+  region_size = (size*CFG_HASHMAP_BUCKET_ARRAY_SIZE)/CFG_GRANULARITY;
+  s->map.buckets = (atom_list*)start;
+  s->map.num_buckets = region_size / sizeof(atom_list);
+
+  start += region_size;
+  region_size = (size*CFG_OUT_BUFFER_SIZE)/CFG_GRANULARITY;
+  s->out_buffer = (char*)start;
+  s->buff_size = region_size;
+  s->written = 0;
+
+  builtin_hard_clear(s, NULL);
+
+  return err;
+}
+
+/* TODO: REFACTOR: make sure the order of arguments are consistent across procedures */
+error_code shell_eval(shell* s, char* cmd, size_t cmd_size) {
+  arg_list* list = par_parse(cmd, cmd_size, s);
+  argument arg;
+  atom at;
+  error_code err;
+  if (list == NULL) {
+    return s->err.code;
+  }
+  arg = list->arg;
+  if (arg.kind != ark_atom) {
+    return error_internal_exp_atom;
+  }
+  at = arg.contents.atom;
+  if (at.kind != atk_command) {
+    return error_internal_exp_cmd;
+  }
+
+  s->written = 0;
+
+  err = (at.contents.cmd)(s, list);
+  return err;
+}
+/* END: SHELL NAMESPACE */
+
+/* BEGIN: BUILTIN NAMESPACE */
 error_code builtin_def(shell* s, arg_list* args) {
   arg_list* curr;
   pair p;
@@ -1258,79 +1339,20 @@ error_code builtin_echo(shell* s, arg_list* args) {
   while (curr != NULL) {
     shell_write_arg(s, curr->arg);
     if (curr->next != NULL) {
-      shell_write_strlit(s, ", ");
+      shell_write_strlit(s, "; ");
     }
     curr = curr->next;
   }
-  shell_write_strlit(s, "\n");
+  shell_write_strlit(s, ";\n");
   return error_none;
 }
 
 /* resets the environment to the default state */
-error_code builtin_clear(shell* s, arg_list* args) {
+error_code builtin_hard_clear(shell* s, arg_list* args) {
   if (args == NULL) {
     /* avoid warning */
   }
   map_clear(&s->map);
-  map_insert(&s->map, atom_create_str("clear"), atom_create_cmd(builtin_clear));
-  map_insert(&s->map, atom_create_str("echo"), atom_create_cmd(builtin_echo));
-  map_insert(&s->map, atom_create_str("def"), atom_create_cmd(builtin_def));
   return error_none;
 }
-
-/* TODO: make sure memory is aligned */
-error new_shell(uint8_t* buffer, size_t size, shell* s) {
-  uint8_t* start;
-  size_t region_size;
-  arena_RES res;
-  error err;
-  err.code = error_none;
-  s->err.code = error_none;
-
-  err.range.begin = 0;
-  err.range.end = 0;
-
-  start = buffer;
-  region_size = (size*CFG_ARG_ARENA_SIZE)/CFG_GRANULARITY;
-  s->arg_arena = new_arena(start, region_size, &res);
-  if (res != arena_OK) {
-    err.code = arena_map_res(res);
-    return err;
-  }
-
-  start += region_size;
-  region_size = (size*CFG_STR_ARENA_SIZE)/CFG_GRANULARITY;
-  s->map.str_arena = new_arena(start, region_size, &res);
-  if (res != arena_OK) {
-    err.code = arena_map_res(res);
-    return err;
-  }
-
-  start += region_size;
-  region_size = (size*CFG_NODE_ARENA_SIZE)/CFG_GRANULARITY;
-  s->map.node_arena = new_arena(start, region_size, &res);
-  if (res != arena_OK) {
-    err.code = arena_map_res(res);
-    return err;
-  }
-
-  start += region_size;
-  region_size = (size*CFG_HASHMAP_BUCKET_ARRAY_SIZE)/CFG_GRANULARITY;
-  s->map.buckets = (atom_list*)start;
-  s->map.num_buckets = region_size / sizeof(atom_list);
-
-  builtin_clear(s, NULL);
-
-  return err;
-}
-
-/* TODO: REFACTOR: make sure the order of arguments are consisten across procedures */
-error_code eval(shell* s, char* cmd, size_t cmd_size) {
-  arg_list* list = pr_parse(cmd, cmd_size, s);
-  if (list == NULL) {
-    return s->err.code;
-  }
-  return error_none;
-}
-
-/* END: SHELL */
+/* END: BUILTIN NAMESPACE */
