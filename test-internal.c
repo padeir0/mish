@@ -12,8 +12,23 @@ char print_buffer[PRINT_BUFFER_SIZE] = {0};
 uint8_t shell_memory[SHELL_MEMORY_SIZE] = {0};
 
 char cmd1[] = "def cmd:i2cscan port:8080\n";
-char cmd2[] = "echo a:abcde b:123 c:0b101 d:0xCAFE e:123.0 f:\"\x68\U00000393\U000030AC\U000101FA\"\n";
+char cmd2[] = "echo a:abcde b:123 c:0b101 d:0xCAFE e:123.001 f:\"\x68\U00000393\U000030AC\U000101FA\"\n";
 char cmd3[] = "echo $cmd $port\n";
+char cmd4[] = "echo 0.1 0.01 0.001 0.500\n";
+
+/* BEGIN: EVAL TEST */
+error_code cmd_clear(shell* s, arg_list* list) {
+  bool ok = true;
+  builtin_hard_clear(s, list);
+  
+  ok = ok && shell_new_cmd(s, "def", builtin_def);
+  ok = ok && shell_new_cmd(s, "echo", builtin_echo);
+  ok = ok && shell_new_cmd(s, "clear", cmd_clear);
+  if (ok == false) {
+    return error_insert_failed;
+  }
+  return error_none;
+}
 /* END: SHARED*/
 
 
@@ -23,7 +38,7 @@ char* utf8_test_data = "\x68\U00000393\U000030AC\U000101FA";
 void check_rune(char** curr_char, utf8_rune expected) {
   utf8_rune r;
   size_t rune_size;
-  rune_size = utf8_decode(*curr_char, &r);
+  rune_size = utf8_decode(*curr_char, strlen(*curr_char), &r);
   if (rune_size > 0) {
     *curr_char += rune_size;
     if (r != expected) {
@@ -81,6 +96,7 @@ void lex_test() {
   printf(">>>>>>>>>>>> LEX TEST\n");
   lex_test_once(cmd1);
   lex_test_once(cmd2);
+  lex_test_once(cmd3);
 }
 /* END: LEX TEST */
 
@@ -181,11 +197,11 @@ void map_test() {
   fill_test_cases();
   
   err = shell_new(shell_memory, SHELL_MEMORY_SIZE, &s);
-  
   if (err != error_none) {
     printf("error: %d\n", err);
     abort();
   }
+  cmd_clear(&s, NULL);
 
   for (i = 0; i < 5; i++) {
     map_test_once(&s);
@@ -224,6 +240,7 @@ void parse_test() {
     printf("error: %d\n", err);
     abort();
   }
+  cmd_clear(&s, NULL);
   parse_once(&s, cmd1);
   parse_once(&s, cmd2);
 }
@@ -272,6 +289,7 @@ void eval_test() {
   
   eval_once(&s, cmd1);
   eval_once(&s, cmd3);
+  eval_once(&s, cmd4);
 }
 /* END: EVAL TEST */
 

@@ -21,8 +21,8 @@
 /* END: CONFIG*/
 typedef enum {
   error_none,
-  error_contract_violation,
   error_bad_rune,
+  error_unexpected_EOF,
   error_invalid_syntax,
   error_unrecognized_rune,
   error_parser_out_of_memory, /* 5 */
@@ -31,11 +31,13 @@ typedef enum {
   error_arena_too_small,
   error_variable_not_found,
   error_insert_failed, /* 10 */
+  error_contract_violation,
   error_internal,
   error_internal_lexer,
   error_internal_parser,
-  error_internal_exp_atom,
-  error_internal_exp_cmd /* 15 */
+  error_internal_exp_atom,  /* 15 */
+  error_internal_exp_cmd,
+  error_bad_memory_config
 } error_code;
 
 typedef struct {
@@ -146,7 +148,7 @@ typedef struct shell {
 
 error_code shell_new(uint8_t* buffer, size_t size, struct shell* s);
 error_code shell_eval(shell* s, char* cmd, size_t cmd_size);
-bool  shell_new_cmd(shell* s, char* name, command cmd);
+bool   shell_new_cmd(shell* s, char* name, command cmd);
 size_t shell_write_atom(shell* s, atom a);
 size_t shell_write_arg(shell* s, argument a);
 size_t shell_write_strlit(shell* s, char* string);

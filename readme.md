@@ -44,10 +44,11 @@ There are 3 representations of strings:
 An atom is only evaluated as a variable if
 it is preceded by `$`.
 
-Some built-in functions shall be available:
+Some built-in functions shall be available, but must
+be set by the user:
  - `def` that places a variable on the environment
  - `echo` that echoes something back
- - `clear` that cleans the environment
+ - `clear` that cleans the environment (needs to place all functions back in the environment)
 
 Example:
 
@@ -59,16 +60,7 @@ connected.
 "meuwifi"
 > clear
 > echo $ssid
-undefined
-```
-
-## Examples
-
-```
-> wifi-connect ssid:"meuwifi" pwd:"12345678"
-> show-tasks
-wifi  main  imu
-> set-name "sensor-1"
+error: <error-code>
 ```
 
 ## Limitations
@@ -100,77 +92,6 @@ This approach is simple and does not require special signal handling.
 However, it is necessary that all commands are non-blocking, or at least
 have a proper timeout, so that further commands can be issued. 
 
-## Format of arguments
-
-```c
-#include <stdint.h>
-#include <stddef.h>
-
-struct argument;
-struct shell;
-
-typedef void (*command)(struct shell* s, struct argument* argv, int argc);
-
-typedef struct {
-  char* buffer;
-  size_t length;
-} str;
-
-enum atom_kind {
-  atk_string,
-  atk_exact_num,
-  atk_inexact_num,
-  atk_id
-};
-
-typedef struct {
-  union {
-    str string;
-    uint64_t exact_num;;
-    double inexact_num;
-    command cmd;
-  } contents;
-  enum atom_kind kind;
-} atom;
-
-enum arg_kind {
-  ark_pair,
-  ark_atom
-};
-
-typedef struct {
-  atom key;
-  atom value;
-} pair;
-
-typedef struct argument {
-  enum arg_kind kind;
-  union {
-    pair pair;
-    atom atom;
-  } contents;
-} argument;
-
-typedef struct _node {
-  atom key;
-  atom value;
-  struct _node* next;
-} list_node;
-
-typedef struct {
-  list_node* head, tail;
-} atom_list;
-
-typedef struct {
-  atom_list* buckets;
-  size_t num_buckets;
-} map;
-
-typedef struct shell {
-  map symbols;
-} shell;
-```
-
 ## Memory management
 
 Arguments are parsed and inserted into an arena allocator,
@@ -178,11 +99,11 @@ they are copied by value and the arena is freed once the
 command finishes execution.
 
 Any insertion on the environment map results in a copy of the argument
-to the map internal memory. The map is managed by a free-list allocator
-and memory is only freed when items are removed from the map.
+to the map internal memory. The map is managed by an arena allocator
+and memory is only freed all at once, that is, you can insert
+items one by one, but only remove all of them at the same time.
 
 This means no garbage collection is necessary.
-
 
 ## Eval
 
@@ -209,9 +130,18 @@ that the string representing a command lives for as long as the command is being
 evaluated.
 
 Anything that needs to live longer than the command execution needs to be copied.
-This is the case for identifiers and things referenced by identifiers in the environment.
+This is the case for all strings used as keys or values in the environment.
 
-This command is then parsed as an `arg_list*`, which will live in the argument arena
-as:
+The command is transformed into a linked list of arguments,
+the first argument is interpreted as if it started with `$`
+and the identifier is replaced by whatever value exists in
+the environment for that key. This identifier is expected to be
+command procedure. The previous command becomes:
 
-![argument list](./arg_arena.svg "Argument list")
+```
+<procedure>, <string>, <pair: (string, string)>
+```
+
+This procedure will be called and will receive
+both the shell and the linked list of arguments, where the first
+argument is itself (the procedure). 

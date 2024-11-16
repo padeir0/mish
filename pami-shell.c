@@ -4,6 +4,25 @@
 #include <string.h>
 #include <stdio.h>
 
+/**/
+size_t util_compute_padding(size_t allocated) {
+  size_t misalignment;
+  size_t padding;
+  misalignment = allocated & (sizeof(void*) - 1);
+  if (misalignment == 0) {
+    return 0;
+  }
+  padding = sizeof(void*) - misalignment;
+  return padding;
+}
+
+size_t util_align_trim_down(size_t size) {
+  size_t misalignment;
+  misalignment = size & (sizeof(void*) - 1);
+  return size - misalignment;
+}
+/**/
+
 /* BEGIN: ATOM NAMESPACE */
 atom atom_create_num_exact(uint64_t value) {
   atom a;
@@ -15,10 +34,14 @@ atom atom_create_num_exact(uint64_t value) {
 atom atom_create_num_inexact(double value) {
   atom a;
   a.kind = atk_inexact_num;
-  a.contents.exact_num = value;
+  a.contents.inexact_num = value;
   return a;
 }
 
+/* this function does not copy the string
+ * ensure the lifetimes of whatever you're doing
+ * are precise.
+ */
 atom atom_create_str(char* s) {
   atom a;
   str string;
@@ -60,6 +83,7 @@ bool atom_equals(atom a, atom b) {
     case atk_command:
       return a.contents.cmd == b.contents.cmd;
     default:
+      /* unreachable */
       return false;
   }
 }
@@ -84,10 +108,11 @@ size_t snprint_atom(char* buffer, size_t size, atom a) {
       offset = snprintf(buffer, size, "%f", a.contents.inexact_num);
       break;
     case atk_command:
-      offset = snprintf(buffer, size, "%ld", (uint64_t)a.contents.cmd);
+      offset = snprintf(buffer, size, "<%ld>", (uint64_t)a.contents.cmd);
       break;
     default:
-      offset = snprintf(buffer, size, "??");
+      /* should be unreachable */
+      offset = snprintf(buffer, size, "Unknown atom kind (%d)", a.kind);
       break;
   }
   return offset;
@@ -208,35 +233,53 @@ arena* arena_new(uint8_t* buffer, size_t size, arena_RES* res) {
 }
 
 void* arena_head(arena* a) {
+  if (a == NULL) return NULL;
   return (void*)(a->buffer + a->allocated);
 }
 
-/* TODO: properly align memory */
 void* arena_alloc(arena* a, size_t size) {
-  void* out = arena_head(a);
+  void* out;
+
+  if (a == NULL || size == 0) return NULL;
+
+  /* This assumes all architectures are aligned
+   * in power-of-two chunks (ie, 2, 4, 8 bytes),
+   * which is reasonable.
+   */
+  size += util_compute_padding(size);
+  
   if (a->allocated+size >= a->buffsize) {
     return NULL;
   }
+
+  out = arena_head(a);
   a->allocated += size;
   return out;
 }
 
 void arena_free_all(arena* a) {
+  if (a == NULL) return;
   a->allocated = 0;
-  /* if you need to uncomment this line,
-   * you're doing something wrong. */
+  /* If you need to uncomment this line because of a bug,
+   * you're doing something wrong.
+   * However, if sensitive data is being transmitted through the
+   * shell, this might be a good idea.
+   */
   /* bzero(a->buffer, a->buffsize); */
 }
 
 size_t arena_available(arena* a) {
+  if (a == NULL) return 0;
   return a->buffsize - a->allocated;
 }
 
 size_t arena_used(arena* a) {
+  if (a == NULL) return 0;
   return a->allocated;
 }
 
 bool arena_empty(arena* a) {
+  if (a == NULL) return true;
   return a->allocated == 0;
 }
 /* END: ARENA ALLOCATOR*/
@@ -249,14 +292,19 @@ typedef int32_t utf8_rune;
 
 #define utf8_EoF (utf8_rune)0
 
-size_t utf8_decode(const char* buffer, utf8_rune* r) {
-  if ((buffer[0] & TOP_BITS(1)) == 0) { /* ASCII */
+/* Assumes valid UTF-8 input and does not handle:
+ *   Overlong encodings
+ *   Surrogate pairs
+ *   Code points beyond U+10FFFF
+ */
+size_t utf8_decode(const char* buffer, size_t buff_size, utf8_rune* r) {
+  if (buff_size > 0 && (buffer[0] & TOP_BITS(1)) == 0) { /* ASCII */
     *r = (utf8_rune)buffer[0];
     return 1;
   }
 
   /* TWO BYTE SEQUENCE */
-  if ((buffer[0] & TOP_BITS(3)) == TOP_BITS(2)) {
+  if (buff_size >= 2 && (buffer[0] & TOP_BITS(3)) == TOP_BITS(2)) {
     if ((buffer[1] & TOP_BITS(2)) != TOP_BITS(1)) {
       *r = -1;
       return 0;
@@ -267,7 +315,7 @@ size_t utf8_decode(const char* buffer, utf8_rune* r) {
   }
 
   /* THREE BYTE SEQUENCE */
-  if ((buffer[0] & TOP_BITS(4)) == TOP_BITS(3)) {
+  if (buff_size >= 3 && (buffer[0] & TOP_BITS(4)) == TOP_BITS(3)) {
     if ((buffer[1] & TOP_BITS(2)) != TOP_BITS(1) ||
         (buffer[2] & TOP_BITS(2)) != TOP_BITS(1)) {
       *r = -1;
@@ -280,7 +328,7 @@ size_t utf8_decode(const char* buffer, utf8_rune* r) {
   }
 
   /* FOUR BYTE SEQUENCE */
-  if ((buffer[0] & TOP_BITS(5)) == TOP_BITS(4)) {
+  if (buff_size >= 4 && (buffer[0] & TOP_BITS(5)) == TOP_BITS(4)) {
     if ((buffer[1] & TOP_BITS(2)) != TOP_BITS(1) ||
         (buffer[2] & TOP_BITS(2)) != TOP_BITS(1) ||
         (buffer[3] & TOP_BITS(2)) != TOP_BITS(1)) {
@@ -382,16 +430,25 @@ bool map_copy_atom(map* m, atom* dest, atom* source) {
       return false;
   }
 }
+
+
+/*
+ * Inserts a key-value pair into the map.
+ * 
+ * If the key already exists, insertion is aborted (no update is allowed).
+ * This implementation uses a linked list for collision resolution
+ *
+ * Modifying anything in the environment means lifetimes are not linear
+ * ie: replacing a string would not clear the space occupied by
+ * the previous one, this is impossible since we only use arena allocators.
+ * For this reason, we disallow updates.
+ */
 bool map_insert(map* m, atom key, atom value) {
   int index = map_hash(key) % m->num_buckets;
   atom_list* list = &(m->buckets[index]);
   list_node* n = list->head;
   while (n != NULL) {
     if (atom_equals(key, n->key)) {
-      /* modifying anything in the environment means lifetimes are not linear
-         ie: replacing a string would not clear the space occupied by
-         the previous one, this is impossible since we only use arena allocators.
-      */
       return false; 
     }
     n = n->next;
@@ -556,12 +613,16 @@ error lex_err_internal(lex* l) {
 utf8_rune lex_next_rune(lex* l) {
   utf8_rune r;
   size_t size;
+  const char* decode_start;
+  size_t remaining_buffer;
 
   if (l->lexeme.end >= l->input_size) {
     return utf8_EoF;
   }
   
-  size = utf8_decode(l->input + l->lexeme.end, &r);
+  decode_start = l->input + l->lexeme.end;
+  remaining_buffer = l->input_size - l->lexeme.end;
+  size = utf8_decode(decode_start, remaining_buffer, &r);
   if (size == 0 || r == -1) {
     l->err = lex_err(l, error_bad_rune);
     return -1;
@@ -573,11 +634,15 @@ utf8_rune lex_next_rune(lex* l) {
 utf8_rune lex_peek_rune(lex* l) {
   utf8_rune r;
   size_t size;
+  const char* decode_start;
+  size_t remaining_buffer;
   if (l->lexeme.end >= l->input_size) {
     return utf8_EoF;
   }
 
-  size = utf8_decode(l->input + l->lexeme.end, &r);
+  decode_start = l->input + l->lexeme.end;
+  remaining_buffer = l->input_size - l->lexeme.end;
+  size = utf8_decode(decode_start, remaining_buffer, &r);
   
   if (size == 0 || r == -1) {
     l->err = lex_err(l, error_bad_rune);
@@ -666,7 +731,12 @@ bool lex_accept_run(lex* l, lex_validator v) {
 
 bool lex_accept_until(lex* l, lex_validator v) {
   utf8_rune r = lex_peek_rune(l);
+  int i = 0;
   if (r < 0) {
+    return false;
+  }
+  if (r == utf8_EoF) {
+    l->err = lex_err(l, error_unexpected_EOF);
     return false;
   }
   while (!v(r)) {
@@ -675,6 +745,16 @@ bool lex_accept_until(lex* l, lex_validator v) {
     if (r < 0) {
       return false;
     }
+    if (r == utf8_EoF) {
+      l->err = lex_err(l, error_unexpected_EOF);
+      return false;
+    }
+    i++;
+  }
+
+  if (r == utf8_EoF) {
+    l->err.code = error_unexpected_EOF;
+    return false;
   }
 
   return true;
@@ -1225,7 +1305,21 @@ bool shell_new_cmd(shell* s, char* name, command cmd) {
   return map_insert(&s->map, atom_create_str(name), atom_create_cmd(cmd));
 }
 
-/* TODO: make sure memory is aligned */
+bool shell_assert_config() {
+  size_t total = 0;
+  total += CFG_ARG_ARENA_SIZE;
+  total += CFG_STR_ARENA_SIZE;
+  total += CFG_NODE_ARENA_SIZE;
+  total += CFG_HASHMAP_BUCKET_ARRAY_SIZE;
+  total += CFG_OUT_BUFFER_SIZE;
+  return total == CFG_GRANULARITY;
+}
+
+size_t shell_compute_size(size_t total_size, size_t ratio) {
+  size_t region_size = util_align_trim_down((total_size*ratio)/CFG_GRANULARITY);
+  return region_size;
+}
+
 error_code shell_new(uint8_t* buffer, size_t size, shell* s) {
   uint8_t* start;
   size_t region_size;
@@ -1233,34 +1327,38 @@ error_code shell_new(uint8_t* buffer, size_t size, shell* s) {
   error_code err = error_none;
   s->err.code = error_none;
 
+  if (shell_assert_config() == false) {
+    return error_bad_memory_config;
+  }
+
   start = buffer;
-  region_size = (size*CFG_ARG_ARENA_SIZE)/CFG_GRANULARITY;
+  region_size = shell_compute_size(size, CFG_ARG_ARENA_SIZE);
   s->arg_arena = arena_new(start, region_size, &res);
   if (res != arena_OK) {
     return arena_map_res(res);
   }
 
   start += region_size;
-  region_size = (size*CFG_STR_ARENA_SIZE)/CFG_GRANULARITY;
+  region_size = shell_compute_size(size, CFG_STR_ARENA_SIZE);
   s->map.str_arena = arena_new(start, region_size, &res);
   if (res != arena_OK) {
     return arena_map_res(res);
   }
 
   start += region_size;
-  region_size = (size*CFG_NODE_ARENA_SIZE)/CFG_GRANULARITY;
+  region_size = shell_compute_size(size, CFG_NODE_ARENA_SIZE);
   s->map.node_arena = arena_new(start, region_size, &res);
   if (res != arena_OK) {
     return arena_map_res(res);
   }
 
   start += region_size;
-  region_size = (size*CFG_HASHMAP_BUCKET_ARRAY_SIZE)/CFG_GRANULARITY;
+  region_size = shell_compute_size(size, CFG_HASHMAP_BUCKET_ARRAY_SIZE);
   s->map.buckets = (atom_list*)start;
   s->map.num_buckets = region_size / sizeof(atom_list);
 
   start += region_size;
-  region_size = (size*CFG_OUT_BUFFER_SIZE)/CFG_GRANULARITY;
+  region_size = shell_compute_size(size, CFG_OUT_BUFFER_SIZE);
   s->out_buffer = (char*)start;
   s->buff_size = region_size;
   s->written = 0;
@@ -1270,7 +1368,6 @@ error_code shell_new(uint8_t* buffer, size_t size, shell* s) {
   return err;
 }
 
-/* TODO: REFACTOR: make sure the order of arguments are consistent across procedures */
 error_code shell_eval(shell* s, char* cmd, size_t cmd_size) {
   arg_list* list = par_parse(cmd, cmd_size, s);
   argument arg;
