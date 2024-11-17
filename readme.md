@@ -1,4 +1,4 @@
-# Pami-Shell
+# Mish
 
 Minimal shell for microcontrollers. It is only a way to call
 user-written C functions that do the actual work.
