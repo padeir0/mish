@@ -4,7 +4,10 @@
 #include <string.h>
 #include <stdio.h>
 
-/**/
+/* All public symbols start with "mish",
+ * private names will omit this. */
+
+/* BEGIN: UTIL NAMESPACE */
 size_t util_compute_padding(size_t allocated) {
   size_t misalignment;
   size_t padding;
@@ -21,19 +24,19 @@ size_t util_align_trim_down(size_t size) {
   misalignment = size & (sizeof(void*) - 1);
   return size - misalignment;
 }
-/**/
+/* END: UTIL NAMESPACE */
 
 /* BEGIN: ATOM NAMESPACE */
-atom atom_create_num_exact(uint64_t value) {
-  atom a;
-  a.kind = atk_exact_num;
+mish_atom mish_atom_create_num_exact(uint64_t value) {
+  mish_atom a;
+  a.kind = mish_atk_exact_num;
   a.contents.exact_num = value;
   return a;
 }
 
-atom atom_create_num_inexact(double value) {
-  atom a;
-  a.kind = atk_inexact_num;
+mish_atom mish_atom_create_num_inexact(double value) {
+  mish_atom a;
+  a.kind = mish_atk_inexact_num;
   a.contents.inexact_num = value;
   return a;
 }
@@ -42,31 +45,31 @@ atom atom_create_num_inexact(double value) {
  * ensure the lifetimes of whatever you're doing
  * are precise.
  */
-atom atom_create_str(char* s) {
-  atom a;
-  str string;
+mish_atom mish_atom_create_str(char* s) {
+  mish_atom a;
+  mish_str string;
   string.buffer = s;
   string.length = strlen(s);
-  a.kind = atk_string;
+  a.kind = mish_atk_string;
   a.contents.string = string;
   return a;
 }
 
-atom atom_create_cmd(command cmd) {
-  atom a;
-  a.kind = atk_command;
+mish_atom mish_atom_create_cmd(mish_command cmd) {
+  mish_atom a;
+  a.kind = mish_atk_command;
   a.contents.cmd = cmd;
   return a;
 }
 
-bool atom_equals(atom a, atom b) {
-  str a_s; str b_s;
+bool mish_atom_equals(mish_atom a, mish_atom b) {
+  mish_str a_s; mish_str b_s;
   if (a.kind != b.kind) {
     return false;
   }
 
   switch (a.kind) {
-    case atk_string:
+    case mish_atk_string:
       a_s = a.contents.string;
       b_s = b.contents.string;
 
@@ -76,11 +79,11 @@ bool atom_equals(atom a, atom b) {
       return strncmp(a_s.buffer,
                      b_s.buffer,
                      a_s.length) == 0;
-    case atk_exact_num:
+    case mish_atk_exact_num:
       return a.contents.exact_num == b.contents.exact_num;
-    case atk_inexact_num:
+    case mish_atk_inexact_num:
       return a.contents.inexact_num == b.contents.inexact_num;
-    case atk_command:
+    case mish_atk_command:
       return a.contents.cmd == b.contents.cmd;
     default:
       /* unreachable */
@@ -90,24 +93,24 @@ bool atom_equals(atom a, atom b) {
 /* END: ATOM NAMESPACE */
 
 /* BEGIN: SNPRINT NAMESPACE */
-size_t snprint_atom(char* buffer, size_t size, atom a) {
+size_t mish_snprint_atom(char* buffer, size_t size, mish_atom a) {
   size_t offset = 0;
   if (buffer == NULL) {
     return 0;
   }
   switch (a.kind) {
-    case atk_string:
+    case mish_atk_string:
       offset = snprintf(buffer, size, "\"%.*s\"",
                         (int)a.contents.string.length,
                         a.contents.string.buffer);
       break;
-    case atk_exact_num:
+    case mish_atk_exact_num:
       offset = snprintf(buffer, size, "%ld", a.contents.exact_num);
       break;
-    case atk_inexact_num:
+    case mish_atk_inexact_num:
       offset = snprintf(buffer, size, "%f", a.contents.inexact_num);
       break;
-    case atk_command:
+    case mish_atk_command:
       offset = snprintf(buffer, size, "<%ld>", (uint64_t)a.contents.cmd);
       break;
     default:
@@ -118,35 +121,35 @@ size_t snprint_atom(char* buffer, size_t size, atom a) {
   return offset;
 }
 
-size_t snprint_arg(char* buffer, size_t size, argument a) {
+size_t mish_snprint_arg(char* buffer, size_t size, mish_argument a) {
   size_t offset = 0;
-  pair p;
+  mish_pair p;
   switch (a.kind) {
-  case ark_pair:
+  case mish_ark_pair:
     p = a.contents.pair;
     offset += snprintf(buffer+offset, size-offset, "(");
-    offset += snprint_atom(buffer+offset, size-offset, p.key);
+    offset += mish_snprint_atom(buffer+offset, size-offset, p.key);
     offset += snprintf(buffer+offset, size-offset, ", ");
-    offset += snprint_atom(buffer+offset, size-offset, p.value);
+    offset += mish_snprint_atom(buffer+offset, size-offset, p.value);
     offset += snprintf(buffer+offset, size-offset, ")");
     break;
-  case ark_atom:
-    offset += snprint_atom(buffer, size, a.contents.atom);
+  case mish_ark_atom:
+    offset += mish_snprint_atom(buffer, size, a.contents.atom);
     break;
   }
   return offset;
 }
 
-size_t snprint_arg_list(char* buffer, size_t size, arg_list* list) {
+size_t mish_snprint_arg_list(char* buffer, size_t size, mish_arg_list* list) {
   size_t offset = 0;
-  arg_list* curr;
+  mish_arg_list* curr;
   if (list == NULL) {
     return snprintf(buffer, size, "NULL");
   }
 
   curr = list;
   while (curr != NULL) {
-    offset += snprint_arg(buffer+offset, size-offset, curr->arg);
+    offset += mish_snprint_arg(buffer+offset, size-offset, curr->arg);
 
     if (curr->next != NULL) {
       offset += snprintf(buffer+offset, size-offset, ", ");
@@ -167,36 +170,36 @@ typedef enum {
 char* arena_str_res(arena_RES res);
 
 /* returns a arena allocated at the beginning of the buffer */
-arena* arena_new(uint8_t* buffer, size_t size, arena_RES* res);
+mish_arena* arena_new(uint8_t* buffer, size_t size, arena_RES* res);
 
 /* returns NULL if it fails to allocate */
-void* arena_alloc(arena* a, size_t size);
+void* arena_alloc(mish_arena* a, size_t size);
 
 /* frees the entire arena */
-void arena_free_all(arena* a);
+void arena_free_all(mish_arena* a);
 
 /* returns the amount of memory available */
-size_t arena_available(arena* a);
+size_t arena_available(mish_arena* a);
 
 /* returns the amount of memory used */
-size_t arena_used(arena* a);
+size_t arena_used(mish_arena* a);
 
 /* returns true if the arena is empty */
-bool arena_empty(arena* a);
+bool arena_empty(mish_arena* a);
 
 /* returns the head of the arena */
-void* arena_head(arena* a);
+void* arena_head(mish_arena* a);
 
-error_code arena_map_res(arena_RES res) {
+mish_error_code arena_map_res(arena_RES res) {
   switch(res){
     case arena_OK:
-      return error_none;
+      return mish_error_none;
     case arena_NULL_BUFF:
-      return error_arena_null_buffer;
+      return mish_error_arena_null_buffer;
     case arena_TOO_SMALL:
-      return error_arena_too_small;
+      return mish_error_arena_too_small;
   }
-  return error_internal;
+  return mish_error_internal;
 }
 
 char* arena_str_res(arena_RES res) {
@@ -211,33 +214,33 @@ char* arena_str_res(arena_RES res) {
   return "???";
 }
 
-arena* arena_new(uint8_t* buffer, size_t size, arena_RES* res) {
-  arena* out;
+mish_arena* arena_new(uint8_t* buffer, size_t size, arena_RES* res) {
+  mish_arena* out;
   if (buffer == NULL) {
     *res = arena_NULL_BUFF;
     return NULL;
   }
 
-  if (size < sizeof(arena)) {
+  if (size < sizeof(mish_arena)) {
     *res = arena_TOO_SMALL;
     return NULL;
   }
 
-  out = (arena*)buffer;
-  out->buffer = buffer + sizeof(arena);
-  out->buffsize = size - sizeof(arena);
+  out = (mish_arena*)buffer;
+  out->buffer = buffer + sizeof(mish_arena);
+  out->buffsize = size - sizeof(mish_arena);
   out->allocated = 0;
   *res = arena_OK;
 
   return out;
 }
 
-void* arena_head(arena* a) {
+void* arena_head(mish_arena* a) {
   if (a == NULL) return NULL;
   return (void*)(a->buffer + a->allocated);
 }
 
-void* arena_alloc(arena* a, size_t size) {
+void* arena_alloc(mish_arena* a, size_t size) {
   void* out;
 
   if (a == NULL || size == 0) return NULL;
@@ -257,7 +260,7 @@ void* arena_alloc(arena* a, size_t size) {
   return out;
 }
 
-void arena_free_all(arena* a) {
+void arena_free_all(mish_arena* a) {
   if (a == NULL) return;
   a->allocated = 0;
   /* If you need to uncomment this line because of a bug,
@@ -268,17 +271,17 @@ void arena_free_all(arena* a) {
   /* bzero(a->buffer, a->buffsize); */
 }
 
-size_t arena_available(arena* a) {
+size_t arena_available(mish_arena* a) {
   if (a == NULL) return 0;
   return a->buffsize - a->allocated;
 }
 
-size_t arena_used(arena* a) {
+size_t arena_used(mish_arena* a) {
   if (a == NULL) return 0;
   return a->allocated;
 }
 
-bool arena_empty(arena* a) {
+bool arena_empty(mish_arena* a) {
   if (a == NULL) return true;
   return a->allocated == 0;
 }
@@ -367,7 +370,7 @@ uint32_t map_murmur_hash(char* buff, size_t size) {
   return out;
 }
 
-uint32_t map_hash_str(str s) {
+uint32_t map_hash_str(mish_str s) {
   return map_murmur_hash(s.buffer, s.length);
 }
 
@@ -379,19 +382,19 @@ uint32_t map_hash_inexact(double num) {
   return map_murmur_hash((char*)&num, sizeof(double));
 }
 
-uint32_t map_hash_cmd(command cmd) {
+uint32_t map_hash_cmd(mish_command cmd) {
   return (uint32_t)((uint64_t)cmd % UINT_MAX);
 }
 
-uint32_t map_hash(atom a) {
+uint32_t map_hash(mish_atom a) {
   switch (a.kind) {
-  case atk_string:
+  case mish_atk_string:
     return map_hash_str(a.contents.string);
-  case atk_exact_num:
+  case mish_atk_exact_num:
     return map_hash_exact(a.contents.exact_num);
-  case atk_inexact_num:
+  case mish_atk_inexact_num:
     return map_hash_inexact(a.contents.inexact_num);
-  case atk_command:
+  case mish_atk_command:
     return map_hash_cmd(a.contents.cmd);
   default:
     return 0;
@@ -401,13 +404,13 @@ uint32_t map_hash(atom a) {
 /* we need to copy the string to the internal buffer 
  * so it can live beyond the lifetime of command execution
  */
-bool map_copy_atom(map* m, atom* dest, atom* source) {
-  str source_s;
-  str dest_s;
+bool map_copy_atom(mish_map* m, mish_atom* dest, mish_atom* source) {
+  mish_str source_s;
+  mish_str dest_s;
   
   dest->kind = source->kind;
   switch (source->kind) {
-    case atk_string:
+    case mish_atk_string:
       source_s = source->contents.string;
       dest_s.buffer = arena_alloc(m->str_arena, source_s.length);
       if (dest_s.buffer == NULL) {
@@ -417,13 +420,13 @@ bool map_copy_atom(map* m, atom* dest, atom* source) {
       memcpy(dest_s.buffer, source_s.buffer, source_s.length);
       dest->contents.string = dest_s;
       return true;
-    case atk_exact_num:
+    case mish_atk_exact_num:
       dest->contents.exact_num = source->contents.exact_num;
       return true;
-    case atk_inexact_num:
+    case mish_atk_inexact_num:
       dest->contents.inexact_num = source->contents.inexact_num;
       return true;
-    case atk_command:
+    case mish_atk_command:
       dest->contents.cmd = source->contents.cmd;
       return true;
     default:
@@ -443,18 +446,18 @@ bool map_copy_atom(map* m, atom* dest, atom* source) {
  * the previous one, this is impossible since we only use arena allocators.
  * For this reason, we disallow updates.
  */
-bool map_insert(map* m, atom key, atom value) {
+bool map_insert(mish_map* m, mish_atom key, mish_atom value) {
   int index = map_hash(key) % m->num_buckets;
-  atom_list* list = &(m->buckets[index]);
-  list_node* n = list->head;
+  mish_atom_list* list = &(m->buckets[index]);
+  mish_list_node* n = list->head;
   while (n != NULL) {
-    if (atom_equals(key, n->key)) {
+    if (mish_atom_equals(key, n->key)) {
       return false; 
     }
     n = n->next;
   }
 
-  n = arena_alloc(m->node_arena, sizeof(list_node));
+  n = arena_alloc(m->node_arena, sizeof(mish_list_node));
   if (n == NULL) {
     return false;
   }
@@ -475,12 +478,12 @@ bool map_insert(map* m, atom key, atom value) {
   return true;
 }
 
-bool map_find(map* m, atom key, atom* out) {
+bool map_find(mish_map* m, mish_atom key, mish_atom* out) {
   int index = map_hash(key) % m->num_buckets;
-  atom_list list = m->buckets[index];
-  list_node* n = list.head;
+  mish_atom_list list = m->buckets[index];
+  mish_list_node* n = list.head;
   while (n != NULL) {
-    if (atom_equals(key, n->key)) {
+    if (mish_atom_equals(key, n->key)) {
       *out = n->value;
       return true;
     }
@@ -489,9 +492,9 @@ bool map_find(map* m, atom key, atom* out) {
   return false;
 }
 
-void map_clear(map* m) {
+void map_clear(mish_map* m) {
   size_t i;
-  atom_list* item;
+  mish_atom_list* item;
   for (i = 0; i < m->num_buckets; i++) {
     item = &(m->buckets[i]);
     item->head = NULL;
@@ -501,9 +504,9 @@ void map_clear(map* m) {
   arena_free_all(m->node_arena);
 }
 
-bool map_is_empty(map* m) {
+bool map_is_empty(mish_map* m) {
   size_t i;
-  atom_list item;
+  mish_atom_list item;
   for (i = 0; i < m->num_buckets; i++) {
     item = m->buckets[i];
     if (item.head != NULL || item.tail != NULL) {
@@ -566,7 +569,7 @@ typedef struct {
   const char* input;
   size_t input_size;
   lex_lexeme lexeme;
-  error err;
+  mish_error err;
 } lex;
 
 lex lex_new(const char* input, size_t size) {
@@ -577,7 +580,7 @@ lex lex_new(const char* input, size_t size) {
   l.lexeme.end = 0;
   l.lexeme.vkind = lex_valkind_none;
   l.lexeme.kind = lex_kind_bad;
-  l.err.code = error_none;
+  l.err.code = mish_error_none;
   return l;
 }
 
@@ -590,23 +593,23 @@ void lex_print_lexeme(lex* l) {
          lex_lexeme_str(l->input, l->lexeme));
 }
 
-error lex_base_err(lex* l) {
-  error err;
-  err.code = error_none;
+mish_error lex_base_err(lex* l) {
+  mish_error err;
+  err.code = mish_error_none;
   err.range.begin = l->lexeme.begin;
   err.range.end = l->lexeme.end;
   return err;
 }
 
-error lex_err(lex* l, error_code code) {
-  error err = lex_base_err(l);
+mish_error lex_err(lex* l, mish_error_code code) {
+  mish_error err = lex_base_err(l);
   err.code = code;
   return err;
 }
 
-error lex_err_internal(lex* l) {
-  error err = lex_base_err(l);
-  err.code = error_internal_lexer;
+mish_error lex_err_internal(lex* l) {
+  mish_error err = lex_base_err(l);
+  err.code = mish_error_internal_lexer;
   return err;
 }
 
@@ -624,7 +627,7 @@ utf8_rune lex_next_rune(lex* l) {
   remaining_buffer = l->input_size - l->lexeme.end;
   size = utf8_decode(decode_start, remaining_buffer, &r);
   if (size == 0 || r == -1) {
-    l->err = lex_err(l, error_bad_rune);
+    l->err = lex_err(l, mish_error_bad_rune);
     return -1;
   }
   l->lexeme.end += size;
@@ -645,7 +648,7 @@ utf8_rune lex_peek_rune(lex* l) {
   size = utf8_decode(decode_start, remaining_buffer, &r);
   
   if (size == 0 || r == -1) {
-    l->err = lex_err(l, error_bad_rune);
+    l->err = lex_err(l, mish_error_bad_rune);
     return -1;
   }
   return r;
@@ -736,7 +739,7 @@ bool lex_accept_until(lex* l, lex_validator v) {
     return false;
   }
   if (r == utf8_EoF) {
-    l->err = lex_err(l, error_unexpected_EOF);
+    l->err = lex_err(l, mish_error_unexpected_EOF);
     return false;
   }
   while (!v(r)) {
@@ -746,14 +749,14 @@ bool lex_accept_until(lex* l, lex_validator v) {
       return false;
     }
     if (r == utf8_EoF) {
-      l->err = lex_err(l, error_unexpected_EOF);
+      l->err = lex_err(l, mish_error_unexpected_EOF);
       return false;
     }
     i++;
   }
 
   if (r == utf8_EoF) {
-    l->err.code = error_unexpected_EOF;
+    l->err.code = mish_error_unexpected_EOF;
     return false;
   }
 
@@ -765,7 +768,7 @@ bool lex_read_strlit(lex* l, char delim) {
   bool ok;
   lex_validator val;
   if (r != delim) {
-    l->err = lex_err(l, error_internal_lexer);
+    l->err = lex_err(l, mish_error_internal_lexer);
     return false;
   }
   lex_next_rune(l);
@@ -817,7 +820,7 @@ bool lex_conv_hex(lex* l, uint64_t* value) {
     } else if (c >= 'A' && c <= 'Z') {
       output += (c - 'A') + 10;
     } else {
-      l->err = lex_err(l, error_internal_lexer);
+      l->err = lex_err(l, mish_error_internal_lexer);
       return false;
     }
     begin++;
@@ -842,7 +845,7 @@ bool lex_conv_bin(lex* l, uint64_t* value) {
     if (c == '0' || c == '1') {
       output += (c - '0');
     } else {
-      l->err = lex_err(l, error_internal_lexer);
+      l->err = lex_err(l, mish_error_internal_lexer);
       return false;
     }
     begin++;
@@ -866,7 +869,7 @@ bool lex_conv_dec(lex* l, uint64_t* value) {
     if (c >= '0' && c <= '9') {
       output += (c - '0');
     } else {
-      l->err = lex_err(l, error_internal_lexer);
+      l->err = lex_err(l, mish_error_internal_lexer);
       return false;
     }
     begin++;
@@ -900,7 +903,7 @@ bool lex_conv_inexact(lex* l, double* value) {
       output += (double)(c - '0') / (10.0*fractional);
       fractional += 1;
     } else {
-      l->err = lex_err(l, error_internal_lexer);
+      l->err = lex_err(l, mish_error_internal_lexer);
       return false;
     }
     begin++;
@@ -985,7 +988,7 @@ bool lex_read_identifier(lex* l) {
   utf8_rune r = lex_peek_rune(l);
   bool ok;
   if (lex_is_idchar(r) == false){
-    l->err = lex_err(l, error_internal_lexer);
+    l->err = lex_err(l, mish_error_internal_lexer);
     return false;
   }
   l->lexeme.kind = lex_kind_id;
@@ -1052,7 +1055,7 @@ bool lex_read_any(lex* l) {
       l->lexeme.kind = lex_kind_eof;
       break;
     default:
-      l->err = lex_err(l, error_unrecognized_rune);
+      l->err = lex_err(l, mish_error_unrecognized_runer);
       return false;
   }
   return true;
@@ -1078,40 +1081,40 @@ bool lex_next(lex* l) {
  * the environment, so that it's not only parsing, but
  * also name resolution
  */
-str par_create_string(lex* l) {
-  str s;
+mish_str par_create_string(lex* l) {
+  mish_str s;
   s.length = lex_lexeme_len(l->lexeme) -2; /* minus delimiters */
   s.buffer = lex_lexeme_str(l->input, l->lexeme) + 1; /* jump first delimiter */
   return s;
 }
 
-str par_create_string_from_id(lex* l) {
-  str s;
+mish_str par_create_string_from_id(lex* l) {
+  mish_str s;
   s.length = lex_lexeme_len(l->lexeme);
   s.buffer = lex_lexeme_str(l->input, l->lexeme);
   return s;
 }
 
-bool par_create_atom(lex* l, shell* ctx, atom* a) {
+bool par_create_atom(lex* l, mish_shell* ctx, mish_atom* a) {
   bool ok;
 
   switch (l->lexeme.kind) {
     case lex_kind_str:
-      a->kind = atk_string;
+      a->kind = mish_atk_string;
       a->contents.string = par_create_string(l);
       break;
     case lex_kind_id:
-      a->kind = atk_string;
+      a->kind = mish_atk_string;
       a->contents.string = par_create_string_from_id(l);
       break;
     case lex_kind_num:
       switch (l->lexeme.vkind) {
       case lex_valkind_exact_num:
-        a->kind = atk_exact_num;
+        a->kind = mish_atk_exact_num;
         a->contents.exact_num = l->lexeme.value.exact_num;
         break;
       case lex_valkind_inexact_num:
-        a->kind = atk_inexact_num;
+        a->kind = mish_atk_inexact_num;
         a->contents.inexact_num = l->lexeme.value.inexact_num;
         break;
       default:
@@ -1129,13 +1132,13 @@ bool par_create_atom(lex* l, shell* ctx, atom* a) {
   return true;
 }
 
-bool par_eval_variable(shell* ctx, atom* a) {
+bool par_eval_variable(mish_shell* ctx, mish_atom* a) {
   return map_find(&ctx->map, *a, a);
 }
 
 /* TODO: verify if errors are good */
 /* Atom = ['$'] (id | num | str). */
-bool par_parse_atom(lex* l, atom* a, shell* ctx) {
+bool par_parse_atom(lex* l, mish_atom* a, mish_shell* ctx) {
   bool is_var = false;
   bool ok;
 
@@ -1159,14 +1162,14 @@ bool par_parse_atom(lex* l, atom* a, shell* ctx) {
   }
 
   if (par_create_atom(l, ctx, a) == false) {
-    ctx->err = lex_err(l, error_internal_parser);
+    ctx->err = lex_err(l, mish_error_internal_parser);
     return false;
   }
 
   if (is_var) {
     ok = par_eval_variable(ctx, a);
     if (!ok) {
-      ctx->err.code = error_variable_not_found;
+      ctx->err.code = mish_error_variable_not_found;
       return false;
     }
   }
@@ -1175,10 +1178,10 @@ bool par_parse_atom(lex* l, atom* a, shell* ctx) {
 }
 
 /* Pair = Atom [':' Atom]. */
-bool par_parse_arg(lex* l, shell* ctx, argument* arg) {
-  atom at1;
-  atom at2;
-  pair p;
+bool par_parse_arg(lex* l, mish_shell* ctx, mish_argument* arg) {
+  mish_atom at1;
+  mish_atom at2;
+  mish_pair p;
   bool ok;
 
   if (par_parse_atom(l, &at1, ctx) == false) {
@@ -1198,28 +1201,28 @@ bool par_parse_arg(lex* l, shell* ctx, argument* arg) {
 
     p.key = at1;
     p.value = at2;
-    arg->kind = ark_pair;
+    arg->kind = mish_ark_pair;
     arg->contents.pair = p;
     return true;
   }
-  arg->kind = ark_atom;
+  arg->kind = mish_ark_atom;
   arg->contents.atom = at1;
   return true;
 }
 
-bool par_parse_cmd(lex* l, shell* ctx, argument* arg) {
-  atom a;
+bool par_parse_cmd(lex* l, mish_shell* ctx, mish_argument* arg) {
+  mish_atom a;
   bool ok;
-  arg->kind = ark_atom;
+  arg->kind = mish_ark_atom;
 
   if (par_create_atom(l, ctx, &a) == false) {
-    ctx->err = lex_err(l, error_internal_parser);
+    ctx->err = lex_err(l, mish_error_internal_parser);
     return false;
   }
 
   ok = par_eval_variable(ctx, &a);
   if (!ok) {
-    ctx->err.code = error_variable_not_found;
+    ctx->err.code = mish_error_variable_not_found;
     return false;
   }
   
@@ -1228,13 +1231,13 @@ bool par_parse_cmd(lex* l, shell* ctx, argument* arg) {
 }
 
 /* Command = id {Pair} '\n'. */
-arg_list* par_parse(char* input, size_t input_size, shell* ctx) {
+mish_arg_list* par_parse(char* input, size_t input_size, mish_shell* ctx) {
   lex l = lex_new(input, input_size);
-  arg_list* root;
-  arg_list* list;
-  argument arg;
+  mish_arg_list* root;
+  mish_arg_list* list;
+  mish_argument arg;
   bool ok;
-  ctx->err.code = error_none;
+  ctx->err.code = mish_error_none;
 
   arena_free_all(ctx->arg_arena);
 
@@ -1245,28 +1248,28 @@ arg_list* par_parse(char* input, size_t input_size, shell* ctx) {
   }
 
   if (l.lexeme.kind != lex_kind_id) {
-    ctx->err = lex_err(&l, error_expected_command);
+    ctx->err = lex_err(&l, mish_error_expected_command);
     return NULL;
   }
 
-  list = (arg_list*) arena_alloc(ctx->arg_arena, sizeof(arg_list));
+  list = (mish_arg_list*) arena_alloc(ctx->arg_arena, sizeof(mish_arg_list));
   if (list == NULL) {
-    ctx->err = lex_err(&l, error_parser_out_of_memory);
+    ctx->err = lex_err(&l, mish_error_parser_out_of_memory);
     return NULL;
   }
   root = list;
 
   ok = par_parse_cmd(&l, ctx, &arg);
-  if (!ok && ctx->err.code != error_none) {
+  if (!ok && ctx->err.code != mish_error_none) {
     return NULL;
   }
 
   list->arg = arg;
   
   while (par_parse_arg(&l, ctx, &arg)) {
-    list->next = (arg_list*) arena_alloc(ctx->arg_arena, sizeof(arg_list));
+    list->next = (mish_arg_list*) arena_alloc(ctx->arg_arena, sizeof(mish_arg_list));
     if (list->next == NULL) {
-      ctx->err = lex_err(&l, error_parser_out_of_memory);
+      ctx->err = lex_err(&l, mish_error_parser_out_of_memory);
       return NULL;
     }
 
@@ -1274,7 +1277,7 @@ arg_list* par_parse(char* input, size_t input_size, shell* ctx) {
     list->arg = arg;
   }
 
-  if (ctx->err.code != error_none) {
+  if (ctx->err.code != mish_error_none) {
     return NULL;
   }
   list->next = NULL;
@@ -1283,106 +1286,106 @@ arg_list* par_parse(char* input, size_t input_size, shell* ctx) {
 /* END: PAR NAMESPACE */
 
 /* BEGIN: SHELL NAMESPACE */
-size_t shell_write_atom(shell* s, atom a) {
-  size_t offset = snprint_atom(s->out_buffer + s->written, s->buff_size - s->written, a);
+size_t mish_shell_write_atom(mish_shell* s, mish_atom a) {
+  size_t offset = mish_snprint_atom(s->out_buffer + s->written, s->buff_size - s->written, a);
   s->written += offset;
   return offset;
 }
 
-size_t shell_write_arg(shell* s, argument a) {
-  size_t offset = snprint_arg(s->out_buffer + s->written, s->buff_size - s->written, a);
+size_t mish_shell_write_arg(mish_shell* s, mish_argument a) {
+  size_t offset = mish_snprint_arg(s->out_buffer + s->written, s->buff_size - s->written, a);
   s->written += offset;
   return offset;
 }
 
-size_t shell_write_strlit(shell* s, char* string) {
+size_t mish_shell_write_strlit(mish_shell* s, char* string) {
   size_t offset = snprintf(s->out_buffer + s->written, s->buff_size - s->written, "%s", string);
   s->written += offset;
   return offset;
 }
 
-bool shell_new_cmd(shell* s, char* name, command cmd) {
-  return map_insert(&s->map, atom_create_str(name), atom_create_cmd(cmd));
+bool mish_shell_new_cmd(mish_shell* s, char* name, mish_command cmd) {
+  return map_insert(&s->map, mish_atom_create_str(name), mish_atom_create_cmd(cmd));
 }
 
 bool shell_assert_config() {
   size_t total = 0;
-  total += CFG_ARG_ARENA_SIZE;
-  total += CFG_STR_ARENA_SIZE;
-  total += CFG_NODE_ARENA_SIZE;
-  total += CFG_HASHMAP_BUCKET_ARRAY_SIZE;
-  total += CFG_OUT_BUFFER_SIZE;
-  return total == CFG_GRANULARITY;
+  total += MISH_CFG_ARG_ARENA_SIZE;
+  total += MISH_CFG_STR_ARENA_SIZE;
+  total += MISH_CFG_NODE_ARENA_SIZE;
+  total += MISH_CFG_HASHMAP_BUCKET_ARRAY_SIZE;
+  total += MISH_CFG_OUT_BUFFER_SIZE;
+  return total == MISH_CFG_GRANULARITY;
 }
 
 size_t shell_compute_size(size_t total_size, size_t ratio) {
-  size_t region_size = util_align_trim_down((total_size*ratio)/CFG_GRANULARITY);
+  size_t region_size = util_align_trim_down((total_size*ratio)/MISH_CFG_GRANULARITY);
   return region_size;
 }
 
-error_code shell_new(uint8_t* buffer, size_t size, shell* s) {
+mish_error_code mish_shell_new(uint8_t* buffer, size_t size, mish_shell* s) {
   uint8_t* start;
   size_t region_size;
   arena_RES res;
-  error_code err = error_none;
-  s->err.code = error_none;
+  mish_error_code err = mish_error_none;
+  s->err.code = mish_error_none;
 
   if (shell_assert_config() == false) {
-    return error_bad_memory_config;
+    return mish_error_bad_memory_config;
   }
 
   start = buffer;
-  region_size = shell_compute_size(size, CFG_ARG_ARENA_SIZE);
+  region_size = shell_compute_size(size, MISH_CFG_ARG_ARENA_SIZE);
   s->arg_arena = arena_new(start, region_size, &res);
   if (res != arena_OK) {
     return arena_map_res(res);
   }
 
   start += region_size;
-  region_size = shell_compute_size(size, CFG_STR_ARENA_SIZE);
+  region_size = shell_compute_size(size, MISH_CFG_STR_ARENA_SIZE);
   s->map.str_arena = arena_new(start, region_size, &res);
   if (res != arena_OK) {
     return arena_map_res(res);
   }
 
   start += region_size;
-  region_size = shell_compute_size(size, CFG_NODE_ARENA_SIZE);
+  region_size = shell_compute_size(size, MISH_CFG_NODE_ARENA_SIZE);
   s->map.node_arena = arena_new(start, region_size, &res);
   if (res != arena_OK) {
     return arena_map_res(res);
   }
 
   start += region_size;
-  region_size = shell_compute_size(size, CFG_HASHMAP_BUCKET_ARRAY_SIZE);
-  s->map.buckets = (atom_list*)start;
-  s->map.num_buckets = region_size / sizeof(atom_list);
+  region_size = shell_compute_size(size, MISH_CFG_HASHMAP_BUCKET_ARRAY_SIZE);
+  s->map.buckets = (mish_atom_list*)start;
+  s->map.num_buckets = region_size / sizeof(mish_atom_list);
 
   start += region_size;
-  region_size = shell_compute_size(size, CFG_OUT_BUFFER_SIZE);
+  region_size = shell_compute_size(size, MISH_CFG_OUT_BUFFER_SIZE);
   s->out_buffer = (char*)start;
   s->buff_size = region_size;
   s->written = 0;
 
-  builtin_hard_clear(s, NULL);
+  mish_builtin_hard_clear(s, NULL);
 
   return err;
 }
 
-error_code shell_eval(shell* s, char* cmd, size_t cmd_size) {
-  arg_list* list = par_parse(cmd, cmd_size, s);
-  argument arg;
-  atom at;
-  error_code err;
+mish_error_code mish_shell_eval(mish_shell* s, char* cmd, size_t cmd_size) {
+  mish_arg_list* list = par_parse(cmd, cmd_size, s);
+  mish_argument arg;
+  mish_atom at;
+  mish_error_code err;
   if (list == NULL) {
     return s->err.code;
   }
   arg = list->arg;
-  if (arg.kind != ark_atom) {
-    return error_internal_exp_atom;
+  if (arg.kind != mish_ark_atom) {
+    return mish_error_internal_exp_atom;
   }
   at = arg.contents.atom;
-  if (at.kind != atk_command) {
-    return error_internal_exp_cmd;
+  if (at.kind != mish_atk_command) {
+    return mish_error_internal_exp_cmd;
   }
 
   s->written = 0;
@@ -1393,20 +1396,20 @@ error_code shell_eval(shell* s, char* cmd, size_t cmd_size) {
 /* END: SHELL NAMESPACE */
 
 /* BEGIN: BUILTIN NAMESPACE */
-error_code builtin_def(shell* s, arg_list* args) {
-  arg_list* curr;
-  pair p;
+mish_error_code mish_builtin_def(mish_shell* s, mish_arg_list* args) {
+  mish_arg_list* curr;
+  mish_pair p;
   bool ok;
 
   if (args == NULL) {
-    return error_internal;
+    return mish_error_internal;
   }
 
   /* first we check if arguments are well formed */
   curr = args->next;
   while (curr != NULL) {
-    if (curr->arg.kind != ark_pair) {
-      return error_contract_violation;
+    if (curr->arg.kind != mish_ark_pair) {
+      return mish_error_contract_violation;
     }
     curr = curr->next;
   }
@@ -1417,39 +1420,39 @@ error_code builtin_def(shell* s, arg_list* args) {
 
     ok = map_insert(&s->map, p.key, p.value);
     if (!ok) {
-      return error_insert_failed;
+      return mish_error_insert_failed;
     }
     
     curr = curr->next;
   }
-  return error_none;
+  return mish_error_none;
 }
 
-error_code builtin_echo(shell* s, arg_list* args) {
-  arg_list* curr;
+mish_error_code mish_builtin_echo(mish_shell* s, mish_arg_list* args) {
+  mish_arg_list* curr;
 
   if (args == NULL) {
-    return error_internal;
+    return mish_error_internal;
   }
 
   curr = args->next;
   while (curr != NULL) {
-    shell_write_arg(s, curr->arg);
+    mish_shell_write_arg(s, curr->arg);
     if (curr->next != NULL) {
-      shell_write_strlit(s, "; ");
+      mish_shell_write_strlit(s, "; ");
     }
     curr = curr->next;
   }
-  shell_write_strlit(s, ";\n");
-  return error_none;
+  mish_shell_write_strlit(s, ";\n");
+  return mish_error_none;
 }
 
 /* resets the environment to the default state */
-error_code builtin_hard_clear(shell* s, arg_list* args) {
+mish_error_code mish_builtin_hard_clear(mish_shell* s, mish_arg_list* args) {
   if (args == NULL) {
     /* avoid warning */
   }
   map_clear(&s->map);
-  return error_none;
+  return mish_error_none;
 }
 /* END: BUILTIN NAMESPACE */

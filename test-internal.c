@@ -17,17 +17,17 @@ char cmd3[] = "echo $cmd $port\n";
 char cmd4[] = "echo 0.1 0.01 0.001 0.500\n";
 
 /* BEGIN: EVAL TEST */
-error_code cmd_clear(shell* s, arg_list* list) {
+mish_error_code cmd_clear(mish_shell* s, mish_arg_list* list) {
   bool ok = true;
-  builtin_hard_clear(s, list);
+  mish_builtin_hard_clear(s, list);
   
-  ok = ok && shell_new_cmd(s, "def", builtin_def);
-  ok = ok && shell_new_cmd(s, "echo", builtin_echo);
-  ok = ok && shell_new_cmd(s, "clear", cmd_clear);
+  ok = ok && mish_shell_new_cmd(s, "def", mish_builtin_def);
+  ok = ok && mish_shell_new_cmd(s, "echo", mish_builtin_echo);
+  ok = ok && mish_shell_new_cmd(s, "clear", cmd_clear);
   if (ok == false) {
-    return error_insert_failed;
+    return mish_error_insert_failed;
   }
-  return error_none;
+  return mish_error_none;
 }
 /* END: SHARED*/
 
@@ -101,62 +101,62 @@ void lex_test() {
 /* END: LEX TEST */
 
 /* BEGIN: MAP TEST */
-void print_atom(atom a) {
+void print_atom(mish_atom a) {
   size_t offset = 0;
   char* buffer = print_buffer;
   size_t size = PRINT_BUFFER_SIZE;
 
-  offset += snprint_atom(buffer+offset, size-offset, a);
+  offset += mish_snprint_atom(buffer+offset, size-offset, a);
 
   printf("%.*s", (int)offset, buffer);
 }
 
-void print_kvpair(atom key, atom value) {
+void print_kvpair(mish_atom key, mish_atom value) {
   size_t offset = 0;
   char* buffer = print_buffer;
   size_t size = PRINT_BUFFER_SIZE;
   offset += snprintf(buffer+offset, size-offset, "(");
-  offset += snprint_atom(buffer+offset, size-offset, key);
+  offset += mish_snprint_atom(buffer+offset, size-offset, key);
   offset += snprintf(buffer+offset, size-offset, ", ");
-  offset += snprint_atom(buffer+offset, size-offset, value);
+  offset += mish_snprint_atom(buffer+offset, size-offset, value);
   offset += snprintf(buffer+offset, size-offset, ")");
 
   printf("%.*s", (int)offset, buffer);
 }
 
-void print_arg_list(arg_list* list) {
+void print_arg_list(mish_arg_list* list) {
   size_t offset = 0;
   char* buffer = print_buffer;
   size_t size = PRINT_BUFFER_SIZE;
 
-  offset += snprint_arg_list(buffer+offset, size-offset, list);
+  offset += mish_snprint_arg_list(buffer+offset, size-offset, list);
   printf("%.*s", (int)offset, buffer);
 }
 
 #define NUM_MAP_TEST_CASES 8
-atom map_test_cases[NUM_MAP_TEST_CASES] = {0};
+mish_atom map_test_cases[NUM_MAP_TEST_CASES] = {0};
 
 void fill_test_cases() {
-  map_test_cases[0] = atom_create_str("there is");
-  map_test_cases[1] = atom_create_str("a house");
-  map_test_cases[2] = atom_create_str("in new");
-  map_test_cases[3] = atom_create_str("orleans");
-  map_test_cases[4] = atom_create_str("they call");
-  map_test_cases[5] = atom_create_str("the rising");
-  map_test_cases[6] = atom_create_str("sun");
-  map_test_cases[7] = atom_create_str("tadadada");
+  map_test_cases[0] = mish_atom_create_str("there is");
+  map_test_cases[1] = mish_atom_create_str("a house");
+  map_test_cases[2] = mish_atom_create_str("in new");
+  map_test_cases[3] = mish_atom_create_str("orleans");
+  map_test_cases[4] = mish_atom_create_str("they call");
+  map_test_cases[5] = mish_atom_create_str("the rising");
+  map_test_cases[6] = mish_atom_create_str("sun");
+  map_test_cases[7] = mish_atom_create_str("tadadada");
 }
 
-void map_test_once(shell* s) {
-  atom key;
-  atom value;
-  atom out;
+void map_test_once(mish_shell* s) {
+  mish_atom key;
+  mish_atom value;
+  mish_atom out;
   bool ok;
   int i;
 
   for (i = 0; i < NUM_MAP_TEST_CASES; i++) {
     key = map_test_cases[i];
-    value = atom_create_num_exact(i);
+    value = mish_atom_create_num_exact(i);
     ok = map_insert(&s->map, key, value);
     if (!ok) {
       printf("failed to insert: ");
@@ -168,7 +168,7 @@ void map_test_once(shell* s) {
 
   for (i = 0; i < NUM_MAP_TEST_CASES; i++) {
     key = map_test_cases[i];
-    value = atom_create_num_exact(i);
+    value = mish_atom_create_num_exact(i);
     ok = map_find(&s->map, key, &out);
     if (!ok) {
       printf("failed to find: ");
@@ -177,7 +177,7 @@ void map_test_once(shell* s) {
       abort();
     }
 
-    if (atom_equals(value, out) == false) {
+    if (mish_atom_equals(value, out) == false) {
       printf("value does not match: ");
       print_atom(value);
       printf(" != ");
@@ -189,15 +189,15 @@ void map_test_once(shell* s) {
 }
 
 void map_test() {
-  shell s;
-  error_code err;
+  mish_shell s;
+  mish_error_code err;
   int i;
 
   printf(">>>>>>>>>>>> MAP TEST\n");
   fill_test_cases();
   
-  err = shell_new(shell_memory, SHELL_MEMORY_SIZE, &s);
-  if (err != error_none) {
+  err = mish_shell_new(shell_memory, SHELL_MEMORY_SIZE, &s);
+  if (err != mish_error_none) {
     printf("error: %d\n", err);
     abort();
   }
@@ -220,11 +220,11 @@ void map_test() {
 
 /* BEGIN: PARSE TEST */
 
-void parse_once(shell* s, char* cmd) {
-  arg_list* list;
+void parse_once(mish_shell* s, char* cmd) {
+  mish_arg_list* list;
 
   list = par_parse(cmd, strlen(cmd), s);
-  if (s->err.code != error_none) {
+  if (s->err.code != mish_error_none) {
     printf("parse error ocurred: %d\n", s->err.code);
   }
   print_arg_list(list);
@@ -232,11 +232,11 @@ void parse_once(shell* s, char* cmd) {
 }
 
 void parse_test() {
-  shell s;
-  error_code err;
+  mish_shell s;
+  mish_error_code err;
   printf(">>>>>>>>>>>> PARSE TEST\n");
-  err = shell_new(shell_memory, SHELL_MEMORY_SIZE, &s);
-  if (err != error_none) {
+  err = mish_shell_new(shell_memory, SHELL_MEMORY_SIZE, &s);
+  if (err != mish_error_none) {
     printf("error: %d\n", err);
     abort();
   }
@@ -258,15 +258,15 @@ char* expected[] = {
   "\"i2cscan\"; 8080;",
 };
 
-void eval_once(shell* s, char* cmd) {
+void eval_once(mish_shell* s, char* cmd) {
   size_t size;
-  error_code err;
+  mish_error_code err;
 
   printf("> %s", cmd);
 
   size = strlen(cmd);
-  err = shell_eval(s, cmd, size);
-  if (err != error_none) {
+  err = mish_shell_eval(s, cmd, size);
+  if (err != mish_error_none) {
     printf("error: %d\n", err);
     abort();
   }
@@ -275,17 +275,17 @@ void eval_once(shell* s, char* cmd) {
 }
 
 void eval_test() {
-  shell s;
-  error_code err;
+  mish_shell s;
+  mish_error_code err;
   printf(">>>>>>>>>>>> EVAL TEST\n");
-  err = shell_new(shell_memory, SHELL_MEMORY_SIZE, &s);
-  if (err != error_none) {
+  err = mish_shell_new(shell_memory, SHELL_MEMORY_SIZE, &s);
+  if (err != mish_error_none) {
     printf("error: %d\n", err);
     abort();
   }
 
-  shell_new_cmd(&s, "def", builtin_def);
-  shell_new_cmd(&s, "echo", builtin_echo);
+  mish_shell_new_cmd(&s, "def", mish_builtin_def);
+  mish_shell_new_cmd(&s, "echo", mish_builtin_echo);
   
   eval_once(&s, cmd1);
   eval_once(&s, cmd3);

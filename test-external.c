@@ -12,17 +12,17 @@
 uint8_t shell_memory[SHELL_MEMORY_SIZE] = {0};
 
 /* BEGIN: EVAL TEST */
-error_code cmd_clear(shell* s, arg_list* list) {
+mish_error_code cmd_clear(mish_shell* s, mish_arg_list* list) {
   bool ok = true;
-  builtin_hard_clear(s, list);
+  mish_builtin_hard_clear(s, list);
   
-  ok = ok && shell_new_cmd(s, "def", builtin_def);
-  ok = ok && shell_new_cmd(s, "echo", builtin_echo);
-  ok = ok && shell_new_cmd(s, "clear", cmd_clear);
+  ok = ok && mish_shell_new_cmd(s, "def", mish_builtin_def);
+  ok = ok && mish_shell_new_cmd(s, "echo", mish_builtin_echo);
+  ok = ok && mish_shell_new_cmd(s, "clear", cmd_clear);
   if (ok == false) {
-    return error_insert_failed;
+    return mish_error_insert_failed;
   }
-  return error_none;
+  return mish_error_none;
 }
 
 #define NUM_COMMANDS 7
@@ -45,15 +45,15 @@ char* expected[NUM_COMMANDS] = {
   "\"\x68\U00000393\U000030AC\U000101FA\";\n",
 };
 
-void eval_once(shell* s, char* cmd) {
+void eval_once(mish_shell* s, char* cmd) {
   size_t size;
-  error_code err;
+  mish_error_code err;
 
   printf("> %s", cmd);
 
   size = strlen(cmd);
-  err = shell_eval(s, cmd, size);
-  if (err != error_none) {
+  err = mish_shell_eval(s, cmd, size);
+  if (err != mish_error_none) {
     printf("error: %d\n", err);
     abort();
   }
@@ -62,19 +62,19 @@ void eval_once(shell* s, char* cmd) {
 }
 
 void eval_test() {
-  shell s;
-  error_code err;
+  mish_shell s;
+  mish_error_code err;
   int i;
   char* cmd; char* exp;
   printf(">>>>>>>>>>>> EVAL TEST\n");
-  err = shell_new(shell_memory, SHELL_MEMORY_SIZE, &s);
-  if (err != error_none) {
+  err = mish_shell_new(shell_memory, SHELL_MEMORY_SIZE, &s);
+  if (err != mish_error_none) {
     printf("error: %d\n", err);
     abort();
   }
 
   err = cmd_clear(&s, NULL);
-  if (err != error_none) {
+  if (err != mish_error_none) {
     printf("error: %d\n", err);
     abort();
   }

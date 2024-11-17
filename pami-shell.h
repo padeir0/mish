@@ -3,6 +3,9 @@
 #include <stddef.h>
 #include <stdlib.h>
 
+/* All public symbols start with "mish",
+ * private names will omit this. */
+
 /* BEGIN: CONFIG */
 
 /* This defines how some given memory is split between
@@ -11,158 +14,158 @@
  *   region_size = (total_memory * CFG_REGION_SIZE) / CFG_GRANULARITY
  */
 
-#define CFG_GRANULARITY               128
-#define CFG_ARG_ARENA_SIZE            16
-#define CFG_NODE_ARENA_SIZE           32
-#define CFG_HASHMAP_BUCKET_ARRAY_SIZE 8
-#define CFG_OUT_BUFFER_SIZE           24
-#define CFG_STR_ARENA_SIZE            48
+#define MISH_CFG_GRANULARITY               128
+#define MISH_CFG_ARG_ARENA_SIZE            16
+#define MISH_CFG_NODE_ARENA_SIZE           32
+#define MISH_CFG_HASHMAP_BUCKET_ARRAY_SIZE 8
+#define MISH_CFG_OUT_BUFFER_SIZE           24
+#define MISH_CFG_STR_ARENA_SIZE            48
 
 /* END: CONFIG*/
 typedef enum {
-  error_none,
-  error_bad_rune,
-  error_unexpected_EOF,
-  error_invalid_syntax,
-  error_unrecognized_rune,
-  error_parser_out_of_memory, /* 5 */
-  error_expected_command,
-  error_arena_null_buffer,
-  error_arena_too_small,
-  error_variable_not_found,
-  error_insert_failed, /* 10 */
-  error_contract_violation,
-  error_internal,
-  error_internal_lexer,
-  error_internal_parser,
-  error_internal_exp_atom,  /* 15 */
-  error_internal_exp_cmd,
-  error_bad_memory_config
-} error_code;
+  mish_error_none,
+  mish_error_bad_rune,
+  mish_error_unexpected_EOF,
+  mish_error_invalid_syntax,
+  mish_error_unrecognized_runer,
+  mish_error_parser_out_of_memory, /* 5 */
+  mish_error_expected_command,
+  mish_error_arena_null_buffer,
+  mish_error_arena_too_small,
+  mish_error_variable_not_found,
+  mish_error_insert_failed, /* 10 */
+  mish_error_contract_violation,
+  mish_error_internal,
+  mish_error_internal_lexer,
+  mish_error_internal_parser,
+  mish_error_internal_exp_atom,  /* 15 */
+  mish_error_internal_exp_cmd,
+  mish_error_bad_memory_config
+} mish_error_code;
 
 typedef struct {
   int begin, end;
-} range;
+} mish_range;
 
 typedef struct {
-  range range;
-  error_code code;
-} error;
+  mish_range range;
+  mish_error_code code;
+} mish_error;
 
 typedef struct {
   char* buffer;
   size_t length;
-} str;
+} mish_str;
 
 typedef enum {
-  atk_string,
-  atk_exact_num,
-  atk_inexact_num,
-  atk_command
-} atom_kind;
+  mish_atk_string,
+  mish_atk_exact_num,
+  mish_atk_inexact_num,
+  mish_atk_command
+} mish_atom_kind;
 
-struct arg_list;
-struct shell;
-typedef error_code (*command)(struct shell* s, struct arg_list* args);
+struct mish__arg_list;
+struct mish__shell;
+typedef mish_error_code (*mish_command)(struct mish__shell* s, struct mish__arg_list* args);
 
 /* TODO: use named commands so that we can properly print them */
 typedef struct {
-  str name;
-  command cmd;
-} named_cmd;
+  mish_str name;
+  mish_command cmd;
+} mish_named_cmd;
 
 typedef struct {
   union {
-    str string;
+    mish_str string;
     uint64_t exact_num;;
     double inexact_num;
-    command cmd;
+    mish_command cmd;
   } contents;
-  atom_kind kind;
-} atom;
+  mish_atom_kind kind;
+} mish_atom;
 
 typedef enum {
-  ark_pair,
-  ark_atom
-} arg_kind;
+  mish_ark_pair,
+  mish_ark_atom
+} mish_arg_kind;
 
 typedef struct {
-  atom key;
-  atom value;
-} pair;
+  mish_atom key;
+  mish_atom value;
+} mish_pair;
 
-typedef struct argument {
-  arg_kind kind;
+typedef struct mish_argument {
+  mish_arg_kind kind;
   union {
-    pair pair;
-    atom atom;
+    mish_pair pair;
+    mish_atom atom;
   } contents;
-} argument;
+} mish_argument;
 
 /* we use a linked list since we build
  * argument lists dynamically and we can't
  * assume our allocator pads our objects
  * like the C standard requires.
  */
-typedef struct arg_list {
-  struct argument arg;
-  struct arg_list* next;
-} arg_list;
+typedef struct mish__arg_list {
+  struct mish_argument arg;
+  struct mish__arg_list* next;
+} mish_arg_list;
 
 /* some of these things should be private */
 
 typedef struct _node {
-  atom key;
-  atom value;
+  mish_atom key;
+  mish_atom value;
   struct _node* next;
-} list_node;
+} mish_list_node;
 
 typedef struct {
   uint8_t* buffer;
   size_t   buffsize;
   size_t   allocated;
-} arena;
+} mish_arena;
 
 typedef struct {
-  list_node* head;
-  list_node* tail;
-} atom_list;
+  mish_list_node* head;
+  mish_list_node* tail;
+} mish_atom_list;
 
 typedef struct {
-  atom_list* buckets;
+  mish_atom_list* buckets;
   size_t num_buckets;
 
-  arena* str_arena;
-  arena* node_arena;
-} map;
+  mish_arena* str_arena;
+  mish_arena* node_arena;
+} mish_map;
 
-typedef struct shell {
-  map map;
-  arena* arg_arena;
-  error err;
+typedef struct mish__shell {
+  mish_map map;
+  mish_arena* arg_arena;
+  mish_error err;
 
   char* out_buffer;
   size_t written;
   size_t buff_size;
-} shell;
+} mish_shell;
 
-error_code shell_new(uint8_t* buffer, size_t size, struct shell* s);
-error_code shell_eval(shell* s, char* cmd, size_t cmd_size);
-bool   shell_new_cmd(shell* s, char* name, command cmd);
-size_t shell_write_atom(shell* s, atom a);
-size_t shell_write_arg(shell* s, argument a);
-size_t shell_write_strlit(shell* s, char* string);
+mish_error_code mish_shell_new(uint8_t* buffer, size_t size, mish_shell* s);
+mish_error_code mish_shell_eval(mish_shell* s, char* cmd, size_t cmd_size);
+bool   mish_shell_new_cmd(mish_shell* s, char* name, mish_command cmd);
+size_t mish_shell_write_atom(mish_shell* s, mish_atom a);
+size_t mish_shell_write_arg(mish_shell* s, mish_argument a);
+size_t mish_shell_write_strlit(mish_shell* s, char* string);
 
-error_code builtin_hard_clear(shell* s, arg_list* list);
-error_code builtin_echo(shell* s, arg_list* list);
-error_code builtin_def(shell* s, arg_list* list);
+mish_error_code mish_builtin_hard_clear(mish_shell* s, mish_arg_list* list);
+mish_error_code mish_builtin_echo(mish_shell* s, mish_arg_list* list);
+mish_error_code mish_builtin_def(mish_shell* s, mish_arg_list* list);
 
-atom atom_create_num_exact(uint64_t value);
-atom atom_create_num_inexact(double value);
-atom atom_create_str(char* s);
-atom atom_create_cmd(command cmd);
-bool atom_equals(atom a, atom b);
+mish_atom mish_atom_create_num_exact(uint64_t value);
+mish_atom mish_atom_create_num_inexact(double value);
+mish_atom mish_atom_create_str(char* s);
+mish_atom mish_atom_create_cmd(mish_command cmd);
+bool mish_atom_equals(mish_atom a, mish_atom b);
 
-size_t snprint_atom(char* buffer, size_t size, atom a);
-size_t snprint_arg(char* buffer, size_t size, argument a);
-size_t snprint_arg_list(char* buffer, size_t size, arg_list* list);
+size_t mish_snprint_atom(char* buffer, size_t size, mish_atom a);
+size_t mish_snprint_arg(char* buffer, size_t size, mish_argument a);
+size_t mish_snprint_arg_list(char* buffer, size_t size, mish_arg_list* list);
