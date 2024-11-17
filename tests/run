@@ -6,9 +6,9 @@ gcc -Wall -Wextra -Werror -std=c99 test-internal.c -o test-internal
 rm test-internal
 
 echo ">>>>>>>>>>> test external"
-gcc -Wall -Wextra -Werror -std=c99 -c "pami-shell.c" -o pami-shell.o
+gcc -Wall -Wextra -Werror -std=c99 -c "../mish.c" -o mish.o
 gcc -Wall -Wextra -Werror -std=c99 -c "test-external.c" -o test-external.o
-gcc pami-shell.o test-external.o -o test-external
+gcc mish.o test-external.o -o test-external
 rm *.o
 ./test-external
 rm test-external

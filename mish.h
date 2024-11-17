@@ -155,6 +155,7 @@ bool   mish_shell_new_cmd(mish_shell* s, char* name, mish_command cmd);
 size_t mish_shell_write_atom(mish_shell* s, mish_atom a);
 size_t mish_shell_write_arg(mish_shell* s, mish_argument a);
 size_t mish_shell_write_strlit(mish_shell* s, char* string);
+size_t mish_shell_write_char(mish_shell* s, char c);
 
 mish_error_code mish_builtin_hard_clear(mish_shell* s, mish_arg_list* list);
 mish_error_code mish_builtin_echo(mish_shell* s, mish_arg_list* list);
@@ -165,7 +166,13 @@ mish_atom mish_atom_create_num_inexact(double value);
 mish_atom mish_atom_create_str(char* s);
 mish_atom mish_atom_create_cmd(mish_command cmd);
 bool mish_atom_equals(mish_atom a, mish_atom b);
+bool mish_atom_is_exact(mish_atom a);
+bool mish_atom_is_inexact(mish_atom a);
+bool mish_atom_is_cmd(mish_atom a);
+bool mish_atom_is_str(mish_atom a);
 
 size_t mish_snprint_atom(char* buffer, size_t size, mish_atom a);
 size_t mish_snprint_arg(char* buffer, size_t size, mish_argument a);
 size_t mish_snprint_arg_list(char* buffer, size_t size, mish_arg_list* list);
+
+bool mish_argval_only_pairs(mish_arg_list* args);

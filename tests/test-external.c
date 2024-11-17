@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "pami-shell.h"
+#include "../mish.h"
 
 #define SHELL_MEMORY_SIZE 2048
 uint8_t shell_memory[SHELL_MEMORY_SIZE] = {0};

@@ -1,4 +1,4 @@
-#include "pami-shell.h"
+#include "mish.h"
 #include <limits.h>
 #include <strings.h>
 #include <string.h>
@@ -90,6 +90,22 @@ bool mish_atom_equals(mish_atom a, mish_atom b) {
       return false;
   }
 }
+
+bool mish_atom_is_exact(mish_atom a) {
+  return a.kind == mish_atk_exact_num;
+}
+
+bool mish_atom_is_inexact(mish_atom a) {
+  return a.kind == mish_atk_inexact_num;
+}
+
+bool mish_atom_is_cmd(mish_atom a) {
+  return a.kind == mish_atk_command;
+}
+
+bool mish_atom_is_str(mish_atom a) {
+  return a.kind == mish_atk_string;
+}
 /* END: ATOM NAMESPACE */
 
 /* BEGIN: SNPRINT NAMESPACE */
@@ -105,17 +121,17 @@ size_t mish_snprint_atom(char* buffer, size_t size, mish_atom a) {
                         a.contents.string.buffer);
       break;
     case mish_atk_exact_num:
-      offset = snprintf(buffer, size, "%ld", a.contents.exact_num);
+      offset = snprintf(buffer, size, "%lld", (long long int)a.contents.exact_num);
       break;
     case mish_atk_inexact_num:
       offset = snprintf(buffer, size, "%f", a.contents.inexact_num);
       break;
     case mish_atk_command:
-      offset = snprintf(buffer, size, "<%ld>", (uint64_t)a.contents.cmd);
+      offset = snprintf(buffer, size, "<%llu>", (unsigned long long int)a.contents.cmd);
       break;
     default:
       /* should be unreachable */
-      offset = snprintf(buffer, size, "Unknown atom kind (%d)", a.kind);
+      offset = snprintf(buffer, size, "Unknown atom kind (%d)", (int)a.kind);
       break;
   }
   return offset;
@@ -586,9 +602,9 @@ lex lex_new(const char* input, size_t size) {
 
 void lex_print_lexeme(lex* l) {
   printf("{begin: %ld, end: %ld, kind: %d, text: \"%.*s\"}\n",
-         l->lexeme.begin,
-         l->lexeme.end,
-         l->lexeme.kind,
+         (long int)l->lexeme.begin,
+         (long int)l->lexeme.end,
+         (int)l->lexeme.kind,
          lex_lexeme_len(l->lexeme),
          lex_lexeme_str(l->input, l->lexeme));
 }
@@ -1304,6 +1320,15 @@ size_t mish_shell_write_strlit(mish_shell* s, char* string) {
   return offset;
 }
 
+size_t mish_shell_write_char(mish_shell* s, char c) {
+  if (s->written >= s->buff_size) {
+    return 0;
+  }
+  s->out_buffer[s->written] = c;
+  s->written ++;
+  return 1;
+}
+
 bool mish_shell_new_cmd(mish_shell* s, char* name, mish_command cmd) {
   return map_insert(&s->map, mish_atom_create_str(name), mish_atom_create_cmd(cmd));
 }
@@ -1389,11 +1414,37 @@ mish_error_code mish_shell_eval(mish_shell* s, char* cmd, size_t cmd_size) {
   }
 
   s->written = 0;
+  *(s->out_buffer) = '\0';
 
   err = (at.contents.cmd)(s, list);
   return err;
 }
 /* END: SHELL NAMESPACE */
+
+/* BEGIN: ARGVAL NAMESPACE*/
+/* definition of functions related to argument validation */
+
+/* returns true if all arguments are pairs,
+ * discards the first argument as it is expected to be the
+ * command.
+ */
+bool mish_argval_only_pairs(mish_arg_list* args) {
+  mish_arg_list* curr;
+  if (args == NULL) {
+    return true; /* if there are no arguments, then all of them are pairs :) */
+  }
+  /* jumping the command */
+  curr = args->next;
+  while (curr != NULL) {
+    if (curr->arg.kind != mish_ark_pair) {
+      return false;
+    }
+    curr = curr->next;
+  }
+  return true;
+}
+
+/* END: ARGVAL NAMESPACE*/
 
 /* BEGIN: BUILTIN NAMESPACE */
 mish_error_code mish_builtin_def(mish_shell* s, mish_arg_list* args) {
@@ -1406,12 +1457,8 @@ mish_error_code mish_builtin_def(mish_shell* s, mish_arg_list* args) {
   }
 
   /* first we check if arguments are well formed */
-  curr = args->next;
-  while (curr != NULL) {
-    if (curr->arg.kind != mish_ark_pair) {
-      return mish_error_contract_violation;
-    }
-    curr = curr->next;
+  if (mish_argval_only_pairs(args) == false) {
+    return mish_error_contract_violation;
   }
 
   curr = args->next;
@@ -1444,6 +1491,7 @@ mish_error_code mish_builtin_echo(mish_shell* s, mish_arg_list* args) {
     curr = curr->next;
   }
   mish_shell_write_strlit(s, ";\n");
+  mish_shell_write_char(s, '\0');
   return mish_error_none;
 }
 
