@@ -21,9 +21,9 @@ mish_error_code cmd_clear(mish_shell* s, mish_arg_list* list) {
   bool ok = true;
   mish_builtin_hard_clear(s, list);
   
-  ok = ok && mish_shell_new_cmd(s, "def", mish_builtin_def);
-  ok = ok && mish_shell_new_cmd(s, "echo", mish_builtin_echo);
-  ok = ok && mish_shell_new_cmd(s, "clear", cmd_clear);
+  ok = ok && mish_shell_add_cmd(s, "def", mish_builtin_def);
+  ok = ok && mish_shell_add_cmd(s, "echo", mish_builtin_echo);
+  ok = ok && mish_shell_add_cmd(s, "clear", cmd_clear);
   if (ok == false) {
     return mish_error_insert_failed;
   }
@@ -156,7 +156,7 @@ void map_test_once(mish_shell* s) {
 
   for (i = 0; i < NUM_MAP_TEST_CASES; i++) {
     key = map_test_cases[i];
-    value = mish_atom_create_num_exact(i);
+    value = mish_atom_create_exact_num(i);
     ok = map_insert(&s->map, key, value);
     if (!ok) {
       printf("failed to insert: ");
@@ -168,7 +168,7 @@ void map_test_once(mish_shell* s) {
 
   for (i = 0; i < NUM_MAP_TEST_CASES; i++) {
     key = map_test_cases[i];
-    value = mish_atom_create_num_exact(i);
+    value = mish_atom_create_exact_num(i);
     ok = map_find(&s->map, key, &out);
     if (!ok) {
       printf("failed to find: ");
@@ -250,12 +250,12 @@ void parse_test() {
 /* BEGIN: EVAL TEST */
 
 char* commands[] = {
-  "def cmd:i2cscan port:8080\n",
-  "echo $cmd $port\n",
+  "def cmd:i2cscan port:8080\r\n",
+  "echo $cmd $port\r\n",
 };
 char* expected[] = {
   "",
-  "\"i2cscan\"; 8080;",
+  "\"i2cscan\"; 8080; \r\n",
 };
 
 void eval_once(mish_shell* s, char* cmd) {
@@ -284,8 +284,8 @@ void eval_test() {
     abort();
   }
 
-  mish_shell_new_cmd(&s, "def", mish_builtin_def);
-  mish_shell_new_cmd(&s, "echo", mish_builtin_echo);
+  mish_shell_add_cmd(&s, "def", mish_builtin_def);
+  mish_shell_add_cmd(&s, "echo", mish_builtin_echo);
   
   eval_once(&s, cmd1);
   eval_once(&s, cmd3);

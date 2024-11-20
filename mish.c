@@ -27,14 +27,14 @@ size_t util_align_trim_down(size_t size) {
 /* END: UTIL NAMESPACE */
 
 /* BEGIN: ATOM NAMESPACE */
-mish_atom mish_atom_create_num_exact(uint64_t value) {
+mish_atom mish_atom_create_exact_num(uint64_t value) {
   mish_atom a;
   a.kind = mish_atk_exact_num;
   a.contents.exact_num = value;
   return a;
 }
 
-mish_atom mish_atom_create_num_inexact(double value) {
+mish_atom mish_atom_create_inexact_num(double value) {
   mish_atom a;
   a.kind = mish_atk_inexact_num;
   a.contents.inexact_num = value;
@@ -121,13 +121,13 @@ size_t mish_snprint_atom(char* buffer, size_t size, mish_atom a) {
                         a.contents.string.buffer);
       break;
     case mish_atk_exact_num:
-      offset = snprintf(buffer, size, "%lld", (long long int)a.contents.exact_num);
+      offset = snprintf(buffer, size, "%ld", (long int)a.contents.exact_num);
       break;
     case mish_atk_inexact_num:
       offset = snprintf(buffer, size, "%f", a.contents.inexact_num);
       break;
     case mish_atk_command:
-      offset = snprintf(buffer, size, "<%llu>", (unsigned long long int)a.contents.cmd);
+      offset = snprintf(buffer, size, "<%lu>", (unsigned long int)a.contents.cmd);
       break;
     default:
       /* should be unreachable */
@@ -137,23 +137,24 @@ size_t mish_snprint_atom(char* buffer, size_t size, mish_atom a) {
   return offset;
 }
 
-size_t mish_snprint_arg(char* buffer, size_t size, mish_argument a) {
+size_t mish_snprint_pair(char* buffer, size_t size, mish_pair p) {
   size_t offset = 0;
-  mish_pair p;
+  offset += snprintf(buffer+offset, size-offset, "(");
+  offset += mish_snprint_atom(buffer+offset, size-offset, p.key);
+  offset += snprintf(buffer+offset, size-offset, ", ");
+  offset += mish_snprint_atom(buffer+offset, size-offset, p.value);
+  offset += snprintf(buffer+offset, size-offset, ")");
+  return offset;
+}
+
+size_t mish_snprint_arg(char* buffer, size_t size, mish_argument a) {
   switch (a.kind) {
   case mish_ark_pair:
-    p = a.contents.pair;
-    offset += snprintf(buffer+offset, size-offset, "(");
-    offset += mish_snprint_atom(buffer+offset, size-offset, p.key);
-    offset += snprintf(buffer+offset, size-offset, ", ");
-    offset += mish_snprint_atom(buffer+offset, size-offset, p.value);
-    offset += snprintf(buffer+offset, size-offset, ")");
-    break;
+    return mish_snprint_pair(buffer, size, a.contents.pair);
   case mish_ark_atom:
-    offset += mish_snprint_atom(buffer, size, a.contents.atom);
-    break;
+    return mish_snprint_atom(buffer, size, a.contents.atom);
   }
-  return offset;
+  return 0;
 }
 
 size_t mish_snprint_arg_list(char* buffer, size_t size, mish_arg_list* list) {
@@ -399,7 +400,7 @@ uint32_t map_hash_inexact(double num) {
 }
 
 uint32_t map_hash_cmd(mish_command cmd) {
-  return (uint32_t)((uint64_t)cmd % UINT_MAX);
+  return (uint32_t)((uintptr_t)cmd % UINT_MAX);
 }
 
 uint32_t map_hash(mish_atom a) {
@@ -898,7 +899,8 @@ bool lex_conv_inexact(lex* l, double* value) {
   char* begin = (char*)l->input + l->lexeme.begin;
   char* end = (char*)l->input + l->lexeme.end;
   char c;
-  int fractional = 0;
+  bool fractional = false;
+  double divisor = 10;
   double output = 0;
   while (begin < end) {
     c = *begin;
@@ -907,17 +909,17 @@ bool lex_conv_inexact(lex* l, double* value) {
       continue;
     }
     if (c == '.') {
-      fractional += 1;
+      fractional = true;
       begin++;
       continue;
     }
 
-    if (c >= '0' && c <= '9' && fractional == 0) {
+    if (c >= '0' && c <= '9' && fractional == false) {
       output *= 10;
       output += (c - '0');
-    } else if (c >= '0' && c <= '9' && fractional > 0) {
-      output += (double)(c - '0') / (10.0*fractional);
-      fractional += 1;
+    } else if (c >= '0' && c <= '9' && fractional == true) {
+      output += (double)(c - '0') / divisor;
+      divisor *= 10;
     } else {
       l->err = lex_err(l, mish_error_internal_lexer);
       return false;
@@ -1152,7 +1154,6 @@ bool par_eval_variable(mish_shell* ctx, mish_atom* a) {
   return map_find(&ctx->map, *a, a);
 }
 
-/* TODO: verify if errors are good */
 /* Atom = ['$'] (id | num | str). */
 bool par_parse_atom(lex* l, mish_atom* a, mish_shell* ctx) {
   bool is_var = false;
@@ -1308,6 +1309,12 @@ size_t mish_shell_write_atom(mish_shell* s, mish_atom a) {
   return offset;
 }
 
+size_t mish_shell_write_pair(mish_shell* s, mish_pair p) {
+  size_t offset = mish_snprint_pair(s->out_buffer + s->written, s->buff_size - s->written, p);
+  s->written += offset;
+  return offset;
+}
+
 size_t mish_shell_write_arg(mish_shell* s, mish_argument a) {
   size_t offset = mish_snprint_arg(s->out_buffer + s->written, s->buff_size - s->written, a);
   s->written += offset;
@@ -1329,8 +1336,25 @@ size_t mish_shell_write_char(mish_shell* s, char c) {
   return 1;
 }
 
-bool mish_shell_new_cmd(mish_shell* s, char* name, mish_command cmd) {
+size_t mish_shell_available_env_memory(mish_shell* s) {
+	return arena_available(s->map.node_arena) +
+		   arena_available(s->map.str_arena);
+}
+
+bool mish_shell_add_cmd(mish_shell* s, char* name, mish_command cmd) {
   return map_insert(&s->map, mish_atom_create_str(name), mish_atom_create_cmd(cmd));
+}
+
+bool mish_shell_add_str(mish_shell* s, char* name, char* str) {
+  return map_insert(&s->map, mish_atom_create_str(name), mish_atom_create_str(str));
+}
+
+bool mish_shell_add_exact_num(mish_shell* s, char* name, int64_t num) {
+  return map_insert(&s->map, mish_atom_create_str(name), mish_atom_create_exact_num(num));
+}
+
+bool mish_shell_add_inexact_num(mish_shell* s, char* name, double num) {
+  return map_insert(&s->map, mish_atom_create_str(name), mish_atom_create_inexact_num(num));
 }
 
 bool shell_assert_config() {
@@ -1485,12 +1509,10 @@ mish_error_code mish_builtin_echo(mish_shell* s, mish_arg_list* args) {
   curr = args->next;
   while (curr != NULL) {
     mish_shell_write_arg(s, curr->arg);
-    if (curr->next != NULL) {
-      mish_shell_write_strlit(s, "; ");
-    }
+     mish_shell_write_strlit(s, "; ");
     curr = curr->next;
   }
-  mish_shell_write_strlit(s, ";\n");
+  mish_shell_write_strlit(s, "\r\n");
   mish_shell_write_char(s, '\0');
   return mish_error_none;
 }
@@ -1501,6 +1523,47 @@ mish_error_code mish_builtin_hard_clear(mish_shell* s, mish_arg_list* args) {
     /* avoid warning */
   }
   map_clear(&s->map);
+  return mish_error_none;
+}
+
+mish_error_code mish_builtin_available_env_memory(mish_shell* s, mish_arg_list* args) {
+  size_t available_mem;
+  size_t cmd_len;
+  if (args == NULL) {
+    /* avoid warning */
+  }
+
+  available_mem = mish_shell_available_env_memory(s);
+  cmd_len = snprintf(s->out_buffer, s->buff_size, "available env memory: %lu\r\n", (long unsigned int)available_mem);
+
+  if (cmd_len == 0) {
+  	return mish_error_cmd_failure;
+  }
+  s->written += cmd_len;
+  return mish_error_none;
+}
+
+mish_error_code mish_builtin_print_env(mish_shell* s, mish_arg_list* args) {
+  size_t i;
+  mish_atom_list item;
+  mish_list_node* node;
+  mish_pair p;
+  if (args == NULL) {
+    /* avoid warning */
+  }
+  for (i = 0; i < s->map.num_buckets; i++) {
+	item = s->map.buckets[i];
+	node = item.head;
+	while (node != NULL) {
+	  p.key = node->key;
+	  p.value = node->value;
+	  mish_shell_write_pair(s, p);
+	  mish_shell_write_strlit(s, "; ");
+	  node = node->next;
+	}
+  }
+  mish_shell_write_strlit(s, "\r\n");
+  mish_shell_write_char(s, '\0');
   return mish_error_none;
 }
 /* END: BUILTIN NAMESPACE */

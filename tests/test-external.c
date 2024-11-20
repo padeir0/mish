@@ -16,9 +16,9 @@ mish_error_code cmd_clear(mish_shell* s, mish_arg_list* list) {
   bool ok = true;
   mish_builtin_hard_clear(s, list);
   
-  ok = ok && mish_shell_new_cmd(s, "def", mish_builtin_def);
-  ok = ok && mish_shell_new_cmd(s, "echo", mish_builtin_echo);
-  ok = ok && mish_shell_new_cmd(s, "clear", cmd_clear);
+  ok = ok && mish_shell_add_cmd(s, "def", mish_builtin_def);
+  ok = ok && mish_shell_add_cmd(s, "echo", mish_builtin_echo);
+  ok = ok && mish_shell_add_cmd(s, "clear", cmd_clear);
   if (ok == false) {
     return mish_error_insert_failed;
   }
@@ -27,22 +27,22 @@ mish_error_code cmd_clear(mish_shell* s, mish_arg_list* list) {
 
 #define NUM_COMMANDS 7
 char* commands[NUM_COMMANDS] = {
-  "def cmd:i2cscan port:8080\n",
-  "echo $cmd $port\n",
-  "def a:0xFF b:0b1010\n",
-  "echo $a $b\n",
-  "clear\n",
-  "def a:\"\x68\U00000393\U000030AC\U000101FA\"\n",
-  "echo $a\n",
+  "def cmd:i2cscan port:8080\r\n",
+  "echo $cmd $port\r\n",
+  "def a:0xFF b:0b1010\r\n",
+  "echo $a $b\r\n",
+  "clear\r\n",
+  "def a:\"\x68\U00000393\U000030AC\U000101FA\"\r\n",
+  "echo $a\r\n",
 };
 char* expected[NUM_COMMANDS] = {
   "",
-  "\"i2cscan\"; 8080;\n",
+  "\"i2cscan\"; 8080; \r\n",
   "",
-  "255; 10;\n",
+  "255; 10; \r\n",
   "",
   "",
-  "\"\x68\U00000393\U000030AC\U000101FA\";\n",
+  "\"\x68\U00000393\U000030AC\U000101FA\"; \r\n",
 };
 
 void eval_once(mish_shell* s, char* cmd) {

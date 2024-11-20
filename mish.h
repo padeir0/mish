@@ -40,7 +40,8 @@ typedef enum {
   mish_error_internal_parser,
   mish_error_internal_exp_atom,  /* 15 */
   mish_error_internal_exp_cmd,
-  mish_error_bad_memory_config
+  mish_error_bad_memory_config,
+  mish_error_cmd_failure
 } mish_error_code;
 
 typedef struct {
@@ -151,15 +152,23 @@ typedef struct mish__shell {
 
 mish_error_code mish_shell_new(uint8_t* buffer, size_t size, mish_shell* s);
 mish_error_code mish_shell_eval(mish_shell* s, char* cmd, size_t cmd_size);
-bool   mish_shell_new_cmd(mish_shell* s, char* name, mish_command cmd);
 size_t mish_shell_write_atom(mish_shell* s, mish_atom a);
 size_t mish_shell_write_arg(mish_shell* s, mish_argument a);
 size_t mish_shell_write_strlit(mish_shell* s, char* string);
 size_t mish_shell_write_char(mish_shell* s, char c);
 
+bool mish_shell_add_cmd(mish_shell* s, char* name, mish_command cmd);
+bool mish_shell_add_str(mish_shell* s, char* name, char* str);
+bool mish_shell_add_exact(mish_shell* s, char* name, int64_t num);
+bool mish_shell_add_inexact_num(mish_shell* s, char* name, double num);
+
+size_t mish_shell_available_env_memory(mish_shell* s);
+
 mish_error_code mish_builtin_hard_clear(mish_shell* s, mish_arg_list* list);
 mish_error_code mish_builtin_echo(mish_shell* s, mish_arg_list* list);
 mish_error_code mish_builtin_def(mish_shell* s, mish_arg_list* list);
+mish_error_code mish_builtin_available_env_memory(mish_shell* s, mish_arg_list* list);
+mish_error_code mish_builtin_print_env(mish_shell* s, mish_arg_list* list);
 
 mish_atom mish_atom_create_num_exact(uint64_t value);
 mish_atom mish_atom_create_num_inexact(double value);
@@ -172,6 +181,7 @@ bool mish_atom_is_cmd(mish_atom a);
 bool mish_atom_is_str(mish_atom a);
 
 size_t mish_snprint_atom(char* buffer, size_t size, mish_atom a);
+size_t mish_snprint_pair(char* buffer, size_t size, mish_pair p);
 size_t mish_snprint_arg(char* buffer, size_t size, mish_argument a);
 size_t mish_snprint_arg_list(char* buffer, size_t size, mish_arg_list* list);
 

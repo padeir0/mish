@@ -32,7 +32,7 @@ single-escapes = '\r' | '\n' | '\t' | '\''.
 id = id-char {id-char-num}.
 id-char = letters |
      '~' | '+' | '-' | '_' | '*' | '/' | '?' | '=' |
-     '&' | '$' | '%' | '<' | '>' | '!'.
+     '&' | '%' | '<' | '>' | '!'.
 id-char-num = id-char | digit.
 ```
 
