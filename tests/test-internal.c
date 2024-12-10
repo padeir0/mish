@@ -156,7 +156,7 @@ void map_test_once(mish_shell* s) {
 
   for (i = 0; i < NUM_MAP_TEST_CASES; i++) {
     key = map_test_cases[i];
-    value = mish_atom_create_exact_num(i);
+    value = mish_atom_create_num_exact(i);
     ok = map_insert(&s->map, key, value);
     if (!ok) {
       printf("failed to insert: ");
@@ -168,7 +168,7 @@ void map_test_once(mish_shell* s) {
 
   for (i = 0; i < NUM_MAP_TEST_CASES; i++) {
     key = map_test_cases[i];
-    value = mish_atom_create_exact_num(i);
+    value = mish_atom_create_num_exact(i);
     ok = map_find(&s->map, key, &out);
     if (!ok) {
       printf("failed to find: ");
@@ -255,7 +255,7 @@ char* commands[] = {
 };
 char* expected[] = {
   "",
-  "\"i2cscan\"; 8080; \r\n",
+  "\"i2cscan\" 8080 \r\n",
 };
 
 void eval_once(mish_shell* s, char* cmd) {

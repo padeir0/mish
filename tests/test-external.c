@@ -37,12 +37,12 @@ char* commands[NUM_COMMANDS] = {
 };
 char* expected[NUM_COMMANDS] = {
   "",
-  "\"i2cscan\"; 8080; \r\n",
+  "\"i2cscan\" 8080 \r\n",
   "",
-  "255; 10; \r\n",
+  "255 10 \r\n",
   "",
   "",
-  "\"\x68\U00000393\U000030AC\U000101FA\"; \r\n",
+  "\"\x68\U00000393\U000030AC\U000101FA\" \r\n",
 };
 
 void eval_once(mish_shell* s, char* cmd) {

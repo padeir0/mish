@@ -24,17 +24,62 @@ size_t util_align_trim_down(size_t size) {
   misalignment = size & (sizeof(void*) - 1);
   return size - misalignment;
 }
+
+char* mish_util_error_str(mish_error_code code) {
+  switch (code) {
+  case mish_error_none:
+    return "mish_error_none";
+  case mish_error_bad_rune:
+    return "mish_error_bad_rune";
+  case mish_error_unexpected_EOF:
+    return "mish_error_unexpected_EOF";
+  case mish_error_invalid_syntax:
+    return "mish_error_invalid_syntax";
+  case mish_error_unrecognized_rune:
+    return "mish_error_unrecognized_rune";
+  case mish_error_parser_out_of_memory:
+    return "mish_error_parser_out_of_memory";
+  case mish_error_expected_command:
+    return "mish_error_expected_command";
+  case mish_error_arena_null_buffer:
+    return "mish_error_arena_null_buffer";
+  case mish_error_arena_too_small:
+    return "mish_error_arena_too_small";
+  case mish_error_variable_not_found:
+    return "mish_error_variable_not_found";
+  case mish_error_insert_failed:
+    return "mish_error_insert_failed";
+  case mish_error_contract_violation:
+    return "mish_error_contract_violation";
+  case mish_error_internal:
+    return "mish_error_internal";
+  case mish_error_internal_lexer:
+    return "mish_error_internal_lexer";
+  case mish_error_internal_parser:
+    return "mish_error_internal_parser";
+  case mish_error_internal_exp_atom:
+    return "mish_error_internal_exp_atom";
+  case mish_error_internal_exp_cmd:
+    return "mish_error_internal_exp_cmd";
+  case mish_error_bad_memory_config:
+    return "mish_error_bad_memory_config";
+  case mish_error_cmd_failure:
+    return "mish_error_cmd_failure";
+  default:
+    return "unknown_mish_error";
+  }
+}
 /* END: UTIL NAMESPACE */
 
 /* BEGIN: ATOM NAMESPACE */
-mish_atom mish_atom_create_exact_num(uint64_t value) {
+mish_atom mish_atom_create_num_exact(uint64_t value) {
   mish_atom a;
   a.kind = mish_atk_exact_num;
   a.contents.exact_num = value;
   return a;
 }
 
-mish_atom mish_atom_create_inexact_num(double value) {
+mish_atom mish_atom_create_num_inexact(double value) {
   mish_atom a;
   a.kind = mish_atk_inexact_num;
   a.contents.inexact_num = value;
@@ -139,11 +184,9 @@ size_t mish_snprint_atom(char* buffer, size_t size, mish_atom a) {
 
 size_t mish_snprint_pair(char* buffer, size_t size, mish_pair p) {
   size_t offset = 0;
-  offset += snprintf(buffer+offset, size-offset, "(");
   offset += mish_snprint_atom(buffer+offset, size-offset, p.key);
-  offset += snprintf(buffer+offset, size-offset, ", ");
+  offset += snprintf(buffer+offset, size-offset, ":");
   offset += mish_snprint_atom(buffer+offset, size-offset, p.value);
-  offset += snprintf(buffer+offset, size-offset, ")");
   return offset;
 }
 
@@ -1073,7 +1116,7 @@ bool lex_read_any(lex* l) {
       l->lexeme.kind = lex_kind_eof;
       break;
     default:
-      l->err = lex_err(l, mish_error_unrecognized_runer);
+      l->err = lex_err(l, mish_error_unrecognized_rune);
       return false;
   }
   return true;
@@ -1228,14 +1271,22 @@ bool par_parse_arg(lex* l, mish_shell* ctx, mish_argument* arg) {
 }
 
 bool par_parse_cmd(lex* l, mish_shell* ctx, mish_argument* arg) {
+  mish_argument _arg;
   mish_atom a;
   bool ok;
   arg->kind = mish_ark_atom;
 
-  if (par_create_atom(l, ctx, &a) == false) {
+  if (par_parse_arg(l, ctx, &_arg) == false) {
     ctx->err = lex_err(l, mish_error_internal_parser);
     return false;
   }
+
+  if (_arg.kind != mish_ark_atom) {
+	  ctx->err = lex_err(l, mish_error_expected_command);
+	  return false;
+  }
+
+  a = _arg.contents.atom;
 
   ok = par_eval_variable(ctx, &a);
   if (!ok) {
@@ -1247,7 +1298,7 @@ bool par_parse_cmd(lex* l, mish_shell* ctx, mish_argument* arg) {
   return true;
 }
 
-/* Command = id {Pair} '\n'. */
+/* Command = A {Pair} '\n'. */
 mish_arg_list* par_parse(char* input, size_t input_size, mish_shell* ctx) {
   lex l = lex_new(input, input_size);
   mish_arg_list* root;
@@ -1261,11 +1312,6 @@ mish_arg_list* par_parse(char* input, size_t input_size, mish_shell* ctx) {
   ok = lex_next(&l);
   if (!ok) {
     ctx->err = l.err;
-    return NULL;
-  }
-
-  if (l.lexeme.kind != lex_kind_id) {
-    ctx->err = lex_err(&l, mish_error_expected_command);
     return NULL;
   }
 
@@ -1342,7 +1388,11 @@ size_t mish_shell_available_env_memory(mish_shell* s) {
 }
 
 bool mish_shell_add_cmd(mish_shell* s, char* name, mish_command cmd) {
-  return map_insert(&s->map, mish_atom_create_str(name), mish_atom_create_cmd(cmd));
+  return mish_shell_add_atom_cmd(s, mish_atom_create_str(name), cmd);
+}
+
+bool mish_shell_add_atom_cmd(mish_shell* s, mish_atom a, mish_command cmd) {
+  return map_insert(&s->map, a, mish_atom_create_cmd(cmd));
 }
 
 bool mish_shell_add_str(mish_shell* s, char* name, char* str) {
@@ -1350,11 +1400,11 @@ bool mish_shell_add_str(mish_shell* s, char* name, char* str) {
 }
 
 bool mish_shell_add_exact_num(mish_shell* s, char* name, int64_t num) {
-  return map_insert(&s->map, mish_atom_create_str(name), mish_atom_create_exact_num(num));
+  return map_insert(&s->map, mish_atom_create_str(name), mish_atom_create_num_exact(num));
 }
 
 bool mish_shell_add_inexact_num(mish_shell* s, char* name, double num) {
-  return map_insert(&s->map, mish_atom_create_str(name), mish_atom_create_inexact_num(num));
+  return map_insert(&s->map, mish_atom_create_str(name), mish_atom_create_num_inexact(num));
 }
 
 bool shell_assert_config() {
@@ -1509,7 +1559,7 @@ mish_error_code mish_builtin_echo(mish_shell* s, mish_arg_list* args) {
   curr = args->next;
   while (curr != NULL) {
     mish_shell_write_arg(s, curr->arg);
-     mish_shell_write_strlit(s, "; ");
+    mish_shell_write_strlit(s, " ");
     curr = curr->next;
   }
   mish_shell_write_strlit(s, "\r\n");
@@ -1558,7 +1608,7 @@ mish_error_code mish_builtin_print_env(mish_shell* s, mish_arg_list* args) {
 	  p.key = node->key;
 	  p.value = node->value;
 	  mish_shell_write_pair(s, p);
-	  mish_shell_write_strlit(s, "; ");
+	  mish_shell_write_strlit(s, " ");
 	  node = node->next;
 	}
   }
@@ -1567,3 +1617,4 @@ mish_error_code mish_builtin_print_env(mish_shell* s, mish_arg_list* args) {
   return mish_error_none;
 }
 /* END: BUILTIN NAMESPACE */
+

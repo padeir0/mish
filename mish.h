@@ -27,7 +27,7 @@ typedef enum {
   mish_error_bad_rune,
   mish_error_unexpected_EOF,
   mish_error_invalid_syntax,
-  mish_error_unrecognized_runer,
+  mish_error_unrecognized_rune,
   mish_error_parser_out_of_memory, /* 5 */
   mish_error_expected_command,
   mish_error_arena_null_buffer,
@@ -43,6 +43,7 @@ typedef enum {
   mish_error_bad_memory_config,
   mish_error_cmd_failure
 } mish_error_code;
+
 
 typedef struct {
   int begin, end;
@@ -157,6 +158,7 @@ size_t mish_shell_write_arg(mish_shell* s, mish_argument a);
 size_t mish_shell_write_strlit(mish_shell* s, char* string);
 size_t mish_shell_write_char(mish_shell* s, char c);
 
+bool mish_shell_add_atom_cmd(mish_shell* s, mish_atom a, mish_command cmd);
 bool mish_shell_add_cmd(mish_shell* s, char* name, mish_command cmd);
 bool mish_shell_add_str(mish_shell* s, char* name, char* str);
 bool mish_shell_add_exact(mish_shell* s, char* name, int64_t num);
@@ -186,3 +188,5 @@ size_t mish_snprint_arg(char* buffer, size_t size, mish_argument a);
 size_t mish_snprint_arg_list(char* buffer, size_t size, mish_arg_list* list);
 
 bool mish_argval_only_pairs(mish_arg_list* args);
+
+char* mish_util_error_str(mish_error_code code);
