@@ -69,6 +69,22 @@ char* mish_util_error_str(mish_error_code code) {
     return "unknown_mish_error";
   }
 }
+
+/* appends b to the end of a, returns a
+ */
+mish_arg_list* util_append_list(mish_arg_list* a, mish_arg_list* b) {
+  mish_arg_list* curr;
+  if (a == NULL) {
+    return b;
+  }
+  curr = a;
+  while (curr->next != NULL) {
+    curr = curr->next;
+  }
+  curr->next = b;
+  return a;
+}
+
 /* END: UTIL NAMESPACE */
 
 /* BEGIN: ATOM NAMESPACE */
@@ -209,7 +225,8 @@ size_t mish_snprint_arg_list(char* buffer, size_t size, mish_arg_list* list) {
 
   curr = list;
   while (curr != NULL) {
-    offset += mish_snprint_arg(buffer+offset, size-offset, curr->arg);
+    mish_argument arg = curr->arg;
+    offset += mish_snprint_arg(buffer+offset, size-offset, arg);
 
     if (curr->next != NULL) {
       offset += snprintf(buffer+offset, size-offset, ", ");
@@ -591,6 +608,7 @@ typedef enum {
   lex_kind_id,
   lex_kind_dollar,
   lex_kind_newline,
+  lex_kind_pipe,
   lex_kind_eof
 } lex_kind;
 
@@ -1108,6 +1126,10 @@ bool lex_read_any(lex* l) {
       lex_next_rune(l);
       l->lexeme.kind = lex_kind_dollar;
       break;
+    case '|':
+      lex_next_rune(l);
+      l->lexeme.kind = lex_kind_pipe;
+      break;
     case '\n':
       lex_next_rune(l);
       l->lexeme.kind = lex_kind_newline;
@@ -1142,17 +1164,32 @@ bool lex_next(lex* l) {
  * the environment, so that it's not only parsing, but
  * also name resolution
  */
-mish_str par_create_string(lex* l) {
+mish_str par_create_string(mish_shell* ctx, lex* l) {
   mish_str s;
+  char* source_buff = NULL;
+
   s.length = lex_lexeme_len(l->lexeme) -2; /* minus delimiters */
-  s.buffer = lex_lexeme_str(l->input, l->lexeme) + 1; /* jump first delimiter */
+  source_buff = lex_lexeme_str(l->input, l->lexeme) + 1; /* jump first delimiter */
+
+  /* alloc, copy and null-terminate */
+  s.buffer = (char*) arena_alloc(ctx->arg_arena, s.length+1);
+  memcpy(s.buffer, source_buff, s.length);
+  s.buffer[s.length] = '\0';
+
   return s;
 }
 
-mish_str par_create_string_from_id(lex* l) {
+mish_str par_create_string_from_id(mish_shell* ctx, lex* l) {
   mish_str s;
+  char* source_buff = NULL;
+
   s.length = lex_lexeme_len(l->lexeme);
-  s.buffer = lex_lexeme_str(l->input, l->lexeme);
+  source_buff = lex_lexeme_str(l->input, l->lexeme);
+
+  /* alloc, copy and null-terminate */
+  s.buffer = (char*) arena_alloc(ctx->arg_arena, s.length+1);
+  memcpy(s.buffer, source_buff, s.length);
+  s.buffer[s.length] = '\0';
   return s;
 }
 
@@ -1162,11 +1199,11 @@ bool par_create_atom(lex* l, mish_shell* ctx, mish_atom* a) {
   switch (l->lexeme.kind) {
     case lex_kind_str:
       a->kind = mish_atk_string;
-      a->contents.string = par_create_string(l);
+      a->contents.string = par_create_string(ctx, l);
       break;
     case lex_kind_id:
       a->kind = mish_atk_string;
-      a->contents.string = par_create_string_from_id(l);
+      a->contents.string = par_create_string_from_id(ctx, l);
       break;
     case lex_kind_num:
       switch (l->lexeme.vkind) {
@@ -1204,8 +1241,8 @@ bool par_parse_atom(lex* l, mish_atom* a, mish_shell* ctx) {
 
   switch (l->lexeme.kind) {
     case lex_kind_newline:
-      return false;
     case lex_kind_eof:
+    case lex_kind_pipe:
       return false;
     default:
       break;
@@ -1270,80 +1307,36 @@ bool par_parse_arg(lex* l, mish_shell* ctx, mish_argument* arg) {
   return true;
 }
 
-bool par_parse_cmd(lex* l, mish_shell* ctx, mish_argument* arg) {
-  mish_argument _arg;
-  mish_atom a;
-  bool ok;
-  arg->kind = mish_ark_atom;
-
-  if (par_parse_arg(l, ctx, &_arg) == false) {
-    ctx->err = lex_err(l, mish_error_internal_parser);
-    return false;
-  }
-
-  if (_arg.kind != mish_ark_atom) {
-	  ctx->err = lex_err(l, mish_error_expected_command);
-	  return false;
-  }
-
-  a = _arg.contents.atom;
-
-  ok = par_eval_variable(ctx, &a);
-  if (!ok) {
-    ctx->err.code = mish_error_variable_not_found;
-    return false;
-  }
-  
-  arg->contents.atom = a;
-  return true;
-}
-
-/* Command = A {Pair} '\n'. */
-mish_arg_list* par_parse(char* input, size_t input_size, mish_shell* ctx) {
-  lex l = lex_new(input, input_size);
-  mish_arg_list* root;
-  mish_arg_list* list;
+/* Pairs = {Pair}. */
+mish_arg_list* par_parse_pairs(lex* l, mish_shell* ctx) {
+  mish_arg_list* root = NULL;
+  mish_arg_list* curr = NULL;
+  mish_arg_list* prev = NULL;
   mish_argument arg;
-  bool ok;
   ctx->err.code = mish_error_none;
 
-  arena_free_all(ctx->arg_arena);
-
-  ok = lex_next(&l);
-  if (!ok) {
-    ctx->err = l.err;
-    return NULL;
-  }
-
-  list = (mish_arg_list*) arena_alloc(ctx->arg_arena, sizeof(mish_arg_list));
-  if (list == NULL) {
-    ctx->err = lex_err(&l, mish_error_parser_out_of_memory);
-    return NULL;
-  }
-  root = list;
-
-  ok = par_parse_cmd(&l, ctx, &arg);
-  if (!ok && ctx->err.code != mish_error_none) {
-    return NULL;
-  }
-
-  list->arg = arg;
-  
-  while (par_parse_arg(&l, ctx, &arg)) {
-    list->next = (mish_arg_list*) arena_alloc(ctx->arg_arena, sizeof(mish_arg_list));
-    if (list->next == NULL) {
-      ctx->err = lex_err(&l, mish_error_parser_out_of_memory);
+  while (par_parse_arg(l, ctx, &arg)) {
+    curr = (mish_arg_list*) arena_alloc(ctx->arg_arena, sizeof(mish_arg_list));
+    if (curr == NULL) {
+      ctx->err = lex_err(l, mish_error_parser_out_of_memory);
       return NULL;
     }
-
-    list = list->next;
-    list->arg = arg;
+    if (root == NULL) {
+      root = curr;
+    }
+    if (prev != NULL) {
+      prev->next = curr;
+    }
+    curr->arg = arg;
+    prev = curr;
   }
 
   if (ctx->err.code != mish_error_none) {
     return NULL;
   }
-  list->next = NULL;
+  if (curr != NULL) {
+    curr->next = NULL;
+  }
   return root;
 }
 /* END: PAR NAMESPACE */
@@ -1470,28 +1463,80 @@ mish_error_code mish_shell_new(uint8_t* buffer, size_t size, mish_shell* s) {
   return err;
 }
 
-mish_error_code mish_shell_eval(mish_shell* s, char* cmd, size_t cmd_size) {
-  mish_arg_list* list = par_parse(cmd, cmd_size, s);
+mish_error_code shell_eval_cmd(mish_shell* s, mish_arg_list* list) {
   mish_argument arg;
   mish_atom at;
-  mish_error_code err;
-  if (list == NULL) {
-    return s->err.code;
-  }
+  bool ok;
+  
   arg = list->arg;
   if (arg.kind != mish_ark_atom) {
     return mish_error_internal_exp_atom;
   }
   at = arg.contents.atom;
+  ok = par_eval_variable(s, &at);
+  if (!ok) {
+    s->err.code = mish_error_variable_not_found;
+    return false;
+  }
   if (at.kind != mish_atk_command) {
     return mish_error_internal_exp_cmd;
   }
 
+  strcpy(s->out_buffer, "");
   s->written = 0;
-  *(s->out_buffer) = '\0';
 
-  err = (at.contents.cmd)(s, list);
-  return err;
+  return (at.contents.cmd)(s, list);
+}
+
+/* Command = Atom {Pair}.*/
+mish_error_code mish_shell_eval(mish_shell* s, char* cmd, size_t cmd_size) {
+  mish_arg_list* cmd_list;
+  mish_arg_list* piped_list;
+  lex input_lex;
+  lex piped_lex;
+  mish_error_code err;
+  bool ok;
+
+  arena_free_all(s->arg_arena);
+  strcpy(s->out_buffer, "");
+  s->written = 0;
+  s->cmd = cmd;
+  s->cmd_size = cmd_size;
+
+  input_lex = lex_new(cmd, cmd_size);
+
+  do {
+    ok = lex_next(&input_lex);
+    if (!ok) {
+      return input_lex.err.code;
+    }
+
+    cmd_list = par_parse_pairs(&input_lex, s);
+    if (cmd_list == NULL) {
+      if (s->err.code != mish_error_none) {
+        return s->err.code;
+      }
+      return mish_error_expected_command;
+    }
+
+    piped_lex = lex_new(s->out_buffer, s->written);
+    ok = lex_next(&piped_lex);
+    if (!ok) {
+      return input_lex.err.code;
+    }
+    piped_list = par_parse_pairs(&piped_lex, s);
+    if (piped_list != NULL) {
+      util_append_list(cmd_list, piped_list);
+    }
+
+    err = shell_eval_cmd(s, cmd_list);
+    if (err != mish_error_none) {
+      return err;
+    }
+    arena_free_all(s->arg_arena);
+  } while (input_lex.lexeme.kind == lex_kind_pipe);
+
+  return mish_error_none;
 }
 /* END: SHELL NAMESPACE */
 

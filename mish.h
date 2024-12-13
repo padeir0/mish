@@ -146,6 +146,9 @@ typedef struct mish__shell {
   mish_arena* arg_arena;
   mish_error err;
 
+  char* cmd;
+  size_t cmd_size;
+  
   char* out_buffer;
   size_t written;
   size_t buff_size;

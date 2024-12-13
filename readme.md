@@ -7,7 +7,9 @@ Most of all, it must be small.
 ## Grammar
 
 ```ebnf
-Command = id {Pair} '\n'.
+Line = Command {'|' Command} '\n'.
+Command = Atom Pairs.
+Pairs = {Pair}.
 Pair = Atom [':' Atom].
 Atom = ['$'] (id | num | str).
 

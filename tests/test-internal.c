@@ -218,37 +218,7 @@ void map_test() {
 
 /* END: MAP TEST */
 
-/* BEGIN: PARSE TEST */
-
-void parse_once(mish_shell* s, char* cmd) {
-  mish_arg_list* list;
-
-  list = par_parse(cmd, strlen(cmd), s);
-  if (s->err.code != mish_error_none) {
-    printf("parse error ocurred: %d\n", s->err.code);
-  }
-  print_arg_list(list);
-  printf("\n");
-}
-
-void parse_test() {
-  mish_shell s;
-  mish_error_code err;
-  printf(">>>>>>>>>>>> PARSE TEST\n");
-  err = mish_shell_new(shell_memory, SHELL_MEMORY_SIZE, &s);
-  if (err != mish_error_none) {
-    printf("error: %d\n", err);
-    abort();
-  }
-  cmd_clear(&s, NULL);
-  parse_once(&s, cmd1);
-  parse_once(&s, cmd2);
-}
-
-/* END: PARSE TEST */
-
 /* BEGIN: EVAL TEST */
-
 char* commands[] = {
   "def cmd:i2cscan port:8080\r\n",
   "echo $cmd $port\r\n",
@@ -297,7 +267,6 @@ int main() {
   utf8_test();
   lex_test();
   map_test();
-  parse_test();
   eval_test();
   return 0;
 }
